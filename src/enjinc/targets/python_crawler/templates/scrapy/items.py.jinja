@@ -1,0 +1,19 @@
+# ============================================================
+# scrapy/items.py.jinja - Scrapy Items
+# ============================================================
+
+from dataclasses import dataclass, asdict
+from typing import Optional
+
+
+{% for struct in structs %}
+@dataclass
+class {{ struct.name }}Item:
+{% for field in struct.fields %}
+    {{ field.name }}: {{ "str" if field.type.base == "String" else ("float" if field.type.base == "Float" else field.type.base | lower) }}{{ " = None" if field.type.is_optional else "" }}
+{% endfor %}
+
+    def to_dict(self):
+        return asdict(self)
+
+{% endfor %}

@@ -1,0 +1,839 @@
+package {{ application.name.replace("-", "_") }}.application.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import {{ application.name.replace("-", "_") }}.domain.entity.*;
+import {{ application.name.replace("-", "_") }}.infrastructure.mapper.*;
+import java.time.LocalDateTime;
+import java.util.*;
+
+/**
+ * 风控服务 - RiskControl Service
+ * 负责风控规则引擎、风险评估、黑名单管理等核心业务逻辑
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class RiskControlService {
+
+    private final RiskRuleMapper riskRuleMapper;
+    private final RiskEventMapper riskEventMapper;
+    private final RiskProfileMapper riskProfileMapper;
+    private final RiskBlacklistMapper riskBlacklistMapper;
+    private final RiskWhitelistMapper riskWhitelistMapper;
+    private final RiskAlertMapper riskAlertMapper;
+    private final DeviceFingerprintMapper deviceFingerprintMapper;
+
+    // ==================== 用户风控 ====================
+
+    /**
+     * 评估用户注册风险
+     */
+    public RiskDecision evaluateUserRegisterRisk(String username, String email, String phone,
+                                                  String ipAddress, String deviceFingerprint) {
+        log.info("评估用户注册风险: username={}, email={}, ip={}", username, email, ipAddress);
+        
+        // 检查白名单
+        WhitelistResult wlResult = checkWhitelist("user", username);
+        if (wlResult.isHit()) {
+            return RiskDecision.builder()
+                    .decision("allow")
+                    .riskLevel("low")
+                    .riskScore(0)
+                    .hitRules(Collections.emptyList())
+                    .suggestion("白名单用户")
+                    .build();
+        }
+
+        // 检查黑名单
+        BlacklistResult blResult = checkBlacklist("user", username);
+        if (blResult.isHit()) {
+            return RiskDecision.builder()
+                    .decision("block")
+                    .riskLevel("critical")
+                    .riskScore(100)
+                    .hitRules(List.of("BLACKLIST"))
+                    .suggestion("用户已在黑名单")
+                    .build();
+        }
+
+        // 检查设备指纹
+        RiskDecision deviceRisk = evaluateDeviceRisk(deviceFingerprint, ipAddress);
+        
+        // 计算综合风险评分
+        int totalScore = calculateRiskScore(1L, "register", 
+            String.format("{\"device_score\":%d,\"ip\":\"%s\"}", 
+                deviceRisk.getRiskScore(), ipAddress));
+
+        // 决策
+        String decision = makeDecision(totalScore);
+        String riskLevel = getRiskLevel(totalScore);
+
+        // 记录风险事件
+        saveRiskEvent("register", 1L, null, null, riskLevel, 
+            List.of("DEVICE_CHECK", "IP_CHECK"), totalScore, decision, ipAddress, deviceFingerprint);
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(totalScore)
+                .hitRules(List.of("DEVICE_RISK"))
+                .suggestion("注册风险评估完成")
+                .build();
+    }
+
+    /**
+     * 评估用户登录风险
+     */
+    public RiskDecision evaluateUserLoginRisk(Long userId, String ipAddress, 
+                                               String deviceFingerprint, String loginStatus) {
+        log.info("评估用户登录风险: userId={}, ip={}, status={}", userId, ipAddress, loginStatus);
+        
+        // 获取用户风控档案
+        RiskProfile profile = getRiskProfile(userId);
+        
+        // 检查异地登录
+        boolean isRemoteLogin = checkRemoteLogin(userId, ipAddress);
+        
+        // 检查暴力破解
+        boolean isBruteForce = profile.getLoginFailCount() > 5;
+        
+        // 计算风险评分
+        int score = 0;
+        List<String> hitRules = new ArrayList<>();
+        
+        if (isRemoteLogin) {
+            score += 30;
+            hitRules.add("REMOTE_LOGIN");
+        }
+        if (isBruteForce) {
+            score += 40;
+            hitRules.add("BRUTE_FORCE");
+        }
+        if (checkBlacklist("ip", ipAddress).isHit()) {
+            score += 50;
+            hitRules.add("IP_BLACKLIST");
+        }
+        
+        String riskLevel = getRiskLevel(score);
+        String decision = makeDecision(score);
+
+        // 更新风控档案
+        if ("success".equals(loginStatus)) {
+            updateRiskProfile(userId, riskLevel, -5, "login_success");
+        } else {
+            updateRiskProfile(userId, riskLevel, 10, "login_fail");
+        }
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(score)
+                .hitRules(hitRules)
+                .suggestion(score > 50 ? "建议验证码二次验证" : "登录正常")
+                .build();
+    }
+
+    // ==================== 订单风控 ====================
+
+    /**
+     * 评估订单风险
+     */
+    public RiskDecision evaluateOrderRisk(Long userId, Double orderAmount, Integer productCount,
+                                           String addressHash, String ipAddress, String deviceFingerprint) {
+        log.info("评估订单风险: userId={}, amount={}, count={}", userId, orderAmount, productCount);
+        
+        int score = 0;
+        List<String> hitRules = new ArrayList<>();
+
+        // 大额订单检查
+        if (orderAmount > 5000) {
+            score += 20;
+            hitRules.add("HIGH_AMOUNT");
+        }
+        if (orderAmount > 10000) {
+            score += 30;
+            hitRules.add("VERY_HIGH_AMOUNT");
+        }
+
+        // 高频下单检查
+        RiskProfile profile = getRiskProfile(userId);
+        if (profile.getOrderCount() > 10) {
+            score += 15;
+            hitRules.add("HIGH_FREQUENCY");
+        }
+
+        // 地址异常检查
+        if (isAddressAnomaly(userId, addressHash)) {
+            score += 25;
+            hitRules.add("ADDRESS_ANOMALY");
+        }
+
+        // 设备风险
+        RiskDecision deviceRisk = evaluateDeviceRisk(deviceFingerprint, ipAddress);
+        score += deviceRisk.getRiskScore() / 5;
+        if (deviceRisk.getRiskScore() > 50) {
+            hitRules.add("DEVICE_RISK");
+        }
+
+        // 黑名单检查
+        if (checkBlacklist("ip", ipAddress).isHit()) {
+            score += 50;
+            hitRules.add("IP_BLACKLIST");
+        }
+
+        String riskLevel = getRiskLevel(score);
+        String decision = makeDecision(score);
+
+        // 高价值订单触发预警
+        if (orderAmount > 10000) {
+            triggerRiskAlert("warning", "order", userId, null,
+                "高价值订单", String.format("订单金额: %.2f, 用户: %d", orderAmount, userId));
+        }
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(score)
+                .hitRules(hitRules)
+                .suggestion(score > 60 ? "建议人工审核" : "订单正常")
+                .build();
+    }
+
+    /**
+     * 评估高价值订单风险
+     */
+    public RiskDecision evaluateHighValueOrderRisk(Long orderId, Long userId, Double amount) {
+        log.info("评估高价值订单风险: orderId={}, userId={}, amount={}", orderId, userId, amount);
+        
+        int score = 30; // 基础分
+        List<String> hitRules = List.of("HIGH_VALUE_ORDER");
+
+        // 超高金额
+        if (amount > 50000) {
+            score += 40;
+            hitRules.add("VERY_VERY_HIGH_AMOUNT");
+        } else if (amount > 20000) {
+            score += 20;
+            hitRules.add("VERY_HIGH_AMOUNT");
+        }
+
+        // 新用户大额
+        RiskProfile profile = getRiskProfile(userId);
+        if (profile.getOrderCount() < 3 && amount > 5000) {
+            score += 30;
+            hitRules.add("NEW_USER_HIGH_AMOUNT");
+        }
+
+        String riskLevel = getRiskLevel(score);
+        
+        // 高价值订单必须审核
+        String decision = score > 60 ? "review" : "allow";
+
+        // 触发预警
+        triggerRiskAlert("danger", "order", userId, orderId,
+            "高价值订单风控", String.format("订单金额: %.2f, 风险评分: %d", amount, score));
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(score)
+                .hitRules(hitRules)
+                .suggestion("高价值订单建议人工审核")
+                .build();
+    }
+
+    // ==================== 支付风控 ====================
+
+    /**
+     * 评估支付风险
+     */
+    public RiskDecision evaluatePaymentRisk(Long userId, Double paymentAmount, 
+                                            String paymentMethod, String cardBin, String ipAddress) {
+        log.info("评估支付风险: userId={}, amount={}, method={}", userId, paymentAmount, paymentMethod);
+        
+        int score = 0;
+        List<String> hitRules = new ArrayList<>();
+
+        // 信用卡风控
+        if ("credit_card".equals(paymentMethod)) {
+            // 盗卡检测
+            RiskDecision stolenCardResult = detectStolenCard(userId, cardBin, "****", ipAddress);
+            if (stolenCardResult.isHit()) {
+                score += 60;
+                hitRules.add("STOLEN_CARD");
+            }
+        }
+
+        // 可疑金额
+        if (paymentAmount > 10000) {
+            score += 20;
+            hitRules.add("HIGH_PAYMENT_AMOUNT");
+        }
+
+        // IP风险
+        if (checkBlacklist("ip", ipAddress).isHit()) {
+            score += 40;
+            hitRules.add("IP_BLACKLIST");
+        }
+
+        String riskLevel = getRiskLevel(score);
+        String decision = makeDecision(score);
+
+        // 可疑支付触发预警
+        if (score > 40) {
+            triggerRiskAlert("warning", "payment", userId, null,
+                "可疑支付", String.format("支付金额: %.2f, 方式: %s", paymentAmount, paymentMethod));
+        }
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(score)
+                .hitRules(hitRules)
+                .suggestion(score > 50 ? "建议人工审核" : "支付正常")
+                .build();
+    }
+
+    /**
+     * 检测盗卡交易
+     */
+    public RiskDecision detectStolenCard(Long userId, String cardBin, String cardLast4, String ipAddress) {
+        log.info("检测盗卡交易: userId={}, cardBin={}", userId, cardBin);
+        
+        // 检查是否在黑名单卡BIN库
+        // 检查CVV验证失败次数
+        // 检查IP地址变更
+        
+        return RiskDecision.builder()
+                .decision("allow")
+                .riskLevel("low")
+                .riskScore(0)
+                .hitRules(Collections.emptyList())
+                .suggestion("未检测到盗卡特征")
+                .build();
+    }
+
+    // ==================== 优惠券风控 ====================
+
+    /**
+     * 评估优惠券领取风险
+     */
+    public RiskDecision evaluateCouponClaimRisk(Long userId, Long couponId, 
+                                                String ipAddress, String deviceFingerprint) {
+        log.info("评估优惠券领取风险: userId={}, couponId={}", userId, couponId);
+        
+        int score = 0;
+        List<String> hitRules = new ArrayList<>();
+
+        // 批量领取检测
+        RiskProfile profile = getRiskProfile(userId);
+        int todayClaimCount = profile.getPaymentCount(); // 复用字段
+        if (todayClaimCount > 5) {
+            score += 30;
+            hitRules.add("BATCH_CLAIM");
+        }
+
+        // 设备指纹异常
+        if (isDeviceAnomaly(deviceFingerprint)) {
+            score += 25;
+            hitRules.add("DEVICE_ANOMALY");
+        }
+
+        // IP异常
+        if (isIpAnomaly(ipAddress)) {
+            score += 20;
+            hitRules.add("IP_ANOMALY");
+        }
+
+        String riskLevel = getRiskLevel(score);
+        String decision = makeDecision(score);
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(score)
+                .hitRules(hitRules)
+                .suggestion(score > 50 ? "领取受限" : "正常领取")
+                .build();
+    }
+
+    // ==================== 黑名单管理 ====================
+
+    /**
+     * 检查黑名单
+     */
+    public BlacklistResult checkBlacklist(String blacklistType, String blacklistValue) {
+        RiskBlacklist record = riskBlacklistMapper.selectByTypeAndValue(blacklistType, blacklistValue);
+        boolean hit = record != null && 
+            (record.getExpiresAt() == null || record.getExpiresAt().isAfter(LocalDateTime.now()));
+        
+        return BlacklistResult.builder()
+                .hit(hit)
+                .record(record)
+                .reason(hit ? record.getReason() : "不在黑名单中")
+                .build();
+    }
+
+    /**
+     * 添加黑名单
+     */
+    public boolean addToBlacklist(String blacklistType, String blacklistValue, 
+                                  String reason, String riskLevel, Integer expiresDays, String operator) {
+        RiskBlacklist blacklist = RiskBlacklist.builder()
+                .blacklistType(blacklistType)
+                .blacklistValue(blacklistValue)
+                .reason(reason)
+                .riskLevel(riskLevel)
+                .expiresAt(expiresDays != null ? LocalDateTime.now().plusDays(expiresDays) : null)
+                .createdBy(operator)
+                .build();
+        
+        return riskBlacklistMapper.insert(blacklist) > 0;
+    }
+
+    /**
+     * 移除黑名单
+     */
+    public boolean removeFromBlacklist(String blacklistType, String blacklistValue, String operator) {
+        return riskBlacklistMapper.deleteByTypeAndValue(blacklistType, blacklistValue) > 0;
+    }
+
+    // ==================== 白名单管理 ====================
+
+    /**
+     * 检查白名单
+     */
+    public WhitelistResult checkWhitelist(String whitelistType, String whitelistValue) {
+        RiskWhitelist record = riskWhitelistMapper.selectByTypeAndValue(whitelistType, whitelistValue);
+        boolean hit = record != null && 
+            (record.getExpiresAt() == null || record.getExpiresAt().isAfter(LocalDateTime.now()));
+        
+        return WhitelistResult.builder()
+                .hit(hit)
+                .record(record)
+                .reason(hit ? record.getReason() : "不在白名单中")
+                .build();
+    }
+
+    /**
+     * 添加白名单
+     */
+    public boolean addToWhitelist(String whitelistType, String whitelistValue, 
+                                   String reason, Integer expiresDays, String operator) {
+        RiskWhitelist whitelist = RiskWhitelist.builder()
+                .whitelistType(whitelistType)
+                .whitelistValue(whitelistValue)
+                .reason(reason)
+                .expiresAt(expiresDays != null ? LocalDateTime.now().plusDays(expiresDays) : null)
+                .createdBy(operator)
+                .build();
+        
+        return riskWhitelistMapper.insert(whitelist) > 0;
+    }
+
+    // ==================== 风控档案 ====================
+
+    /**
+     * 获取风控档案
+     */
+    public RiskProfile getRiskProfile(Long userId) {
+        RiskProfile profile = riskProfileMapper.selectByUserId(userId);
+        if (profile == null) {
+            profile = RiskProfile.builder()
+                    .userId(userId)
+                    .totalScore(0)
+                    .riskLevel("low")
+                    .loginFailCount(0)
+                    .orderCount(0)
+                    .paymentCount(0)
+                    .blockedCount(0)
+                    .reviewedCount(0)
+                    .tags("")
+                    .build();
+            riskProfileMapper.insert(profile);
+        }
+        return profile;
+    }
+
+    /**
+     * 更新风控档案
+     */
+    public RiskProfile updateRiskProfile(Long userId, String riskLevel, Integer scoreDelta, String operationType) {
+        RiskProfile profile = getRiskProfile(userId);
+        
+        profile.setTotalScore(Math.max(0, profile.getTotalScore() + scoreDelta));
+        profile.setRiskLevel(riskLevel);
+        profile.setLastRiskTime(LocalDateTime.now());
+        
+        switch (operationType) {
+            case "login_fail" -> profile.setLoginFailCount(profile.getLoginFailCount() + 1);
+            case "order_created" -> profile.setOrderCount(profile.getOrderCount() + 1);
+            case "blocked" -> profile.setBlockedCount(profile.getBlockedCount() + 1);
+            case "reviewed" -> profile.setReviewedCount(profile.getReviewedCount() + 1);
+        }
+        
+        riskProfileMapper.updateById(profile);
+        return profile;
+    }
+
+    // ==================== 预警管理 ====================
+
+    /**
+     * 触发风控预警
+     */
+    public RiskAlert triggerRiskAlert(String alertLevel, String alertType, Long userId, Long orderId,
+                                       String title, String content) {
+        String alertCode = "ALT" + System.currentTimeMillis();
+        
+        RiskAlert alert = RiskAlert.builder()
+                .alertCode(alertCode)
+                .alertLevel(alertLevel)
+                .alertType(alertType)
+                .userId(userId)
+                .orderId(orderId)
+                .title(title)
+                .content(content)
+                .status("pending")
+                .build();
+        
+        riskAlertMapper.insert(alert);
+        log.warn("触发风控预警: {} - {}", alertCode, title);
+        
+        return alert;
+    }
+
+    /**
+     * 获取待处理预警
+     */
+    public List<RiskAlert> getPendingAlerts(String alertType, Integer limit) {
+        return riskAlertMapper.selectPendingByType(alertType, limit);
+    }
+
+    /**
+     * 处理预警
+     */
+    public boolean resolveAlert(String alertCode, String handler, String resolution) {
+        RiskAlert alert = riskAlertMapper.selectByAlertCode(alertCode);
+        if (alert == null) return false;
+        
+        alert.setStatus("resolved");
+        alert.setHandler(handler);
+        alert.setResolvedAt(LocalDateTime.now());
+        riskAlertMapper.updateById(alert);
+        
+        return true;
+    }
+
+    // ==================== 设备指纹 ====================
+
+    /**
+     * 注册设备指纹
+     */
+    public DeviceFingerprint registerDeviceFingerprint(String deviceId, String deviceType,
+                                                       String browser, String os, String ipAddress) {
+        DeviceFingerprint fp = DeviceFingerprint.builder()
+                .deviceId(deviceId)
+                .deviceType(deviceType)
+                .browser(browser)
+                .os(os)
+                .ipAddress(ipAddress)
+                .riskScore(0)
+                .lastSeen(LocalDateTime.now())
+                .tags("")
+                .build();
+        
+        deviceFingerprintMapper.insertOrUpdate(fp);
+        return fp;
+    }
+
+    /**
+     * 评估设备风险
+     */
+    public RiskDecision evaluateDeviceRisk(String deviceId, String ipAddress) {
+        DeviceFingerprint fp = deviceFingerprintMapper.selectByDeviceId(deviceId);
+        
+        if (fp == null) {
+            return RiskDecision.builder()
+                    .decision("allow")
+                    .riskLevel("medium")
+                    .riskScore(30)
+                    .hitRules(List.of("NEW_DEVICE"))
+                    .suggestion("新设备，建议监控")
+                    .build();
+        }
+
+        int score = fp.getRiskScore();
+        
+        // IP变更检测
+        if (!fp.getIpAddress().equals(ipAddress)) {
+            score += 20;
+        }
+
+        // 模拟器检测
+        if (isEmulator(fp)) {
+            score += 40;
+        }
+
+        return RiskDecision.builder()
+                .decision(makeDecision(score))
+                .riskLevel(getRiskLevel(score))
+                .riskScore(score)
+                .hitRules(score > 30 ? List.of("DEVICE_ANOMALY") : Collections.emptyList())
+                .suggestion(score > 50 ? "设备异常" : "设备正常")
+                .build();
+    }
+
+    // ==================== 规则引擎 ====================
+
+    /**
+     * 执行风控规则
+     */
+    public List<RuleResult> executeRiskRules(String eventType, Long userId, String context) {
+        List<RiskRule> rules = riskRuleMapper.selectByEventType(eventType);
+        List<RuleResult> results = new ArrayList<>();
+        
+        for (RiskRule rule : rules) {
+            if (!Boolean.TRUE.equals(rule.getEnabled())) continue;
+            
+            boolean hit = evaluateRule(rule, userId, context);
+            results.add(RuleResult.builder()
+                    .ruleCode(rule.getRuleCode())
+                    .ruleName(rule.getRuleName())
+                    .hit(hit)
+                    .score(hit ? rule.getScoreWeight() : 0)
+                    .action(rule.getAction())
+                    .build());
+        }
+        
+        return results;
+    }
+
+    /**
+     * 计算风险评分
+     */
+    public Integer calculateRiskScore(Long userId, String eventType, String riskFactors) {
+        // 基础评分
+        int score = 30;
+        
+        // 风险因子加成
+        // 根据历史行为、设备、IP等综合计算
+        
+        return Math.min(100, score);
+    }
+
+    // ==================== 实时决策 ====================
+
+    /**
+     * 综合风控决策
+     */
+    public RiskDecision makeRiskDecision(String eventType, Long userId, Long orderId,
+                                          Double amount, String ipAddress, String deviceFingerprint) {
+        log.info("综合风控决策: event={}, userId={}, orderId={}, amount={}", 
+            eventType, userId, orderId, amount);
+        
+        int totalScore = 0;
+        List<String> allHitRules = new ArrayList<>();
+
+        // 执行所有适用规则
+        List<RuleResult> ruleResults = executeRiskRules(eventType, userId, "{}");
+        for (RuleResult rr : ruleResults) {
+            if (rr.isHit()) {
+                totalScore += rr.getScore();
+                allHitRules.add(rr.getRuleCode());
+            }
+        }
+
+        // 上下文风险加成
+        if (amount != null && amount > 5000) {
+            totalScore += 15;
+            allHitRules.add("HIGH_AMOUNT");
+        }
+
+        String riskLevel = getRiskLevel(totalScore);
+        String decision = makeDecision(totalScore);
+
+        return RiskDecision.builder()
+                .decision(decision)
+                .riskLevel(riskLevel)
+                .riskScore(totalScore)
+                .hitRules(allHitRules)
+                .suggestion(getSuggestion(totalScore))
+                .build();
+    }
+
+    // ==================== 统计报表 ====================
+
+    /**
+     * 获取风控统计
+     */
+    public RiskStatistics getRiskStatistics(String startDate, String endDate) {
+        // 查询统计数据的实现
+        return RiskStatistics.builder()
+                .totalEvents(0)
+                .allowCount(0)
+                .blockCount(0)
+                .reviewCount(0)
+                .alertCount(0)
+                .avgProcessTimeMs(0.0)
+                .build();
+    }
+
+    /**
+     * 获取风险趋势
+     */
+    public List<RiskTrendItem> getRiskTrend(Integer days) {
+        List<RiskTrendItem> trends = new ArrayList<>();
+        for (int i = 0; i < days; i++) {
+            trends.add(RiskTrendItem.builder()
+                    .date(LocalDateTime.now().minusDays(i).toString())
+                    .eventCount(0)
+                    .blockCount(0)
+                    .riskScoreAvg(0.0f)
+                    .build());
+        }
+        return trends;
+    }
+
+    // ==================== 私有辅助方法 ====================
+
+    private boolean checkRemoteLogin(Long userId, String ipAddress) {
+        // 检查当前IP是否与常用IP不同
+        return false;
+    }
+
+    private boolean isAddressAnomaly(Long userId, String addressHash) {
+        // 检查地址是否异常
+        return false;
+    }
+
+    private boolean isDeviceAnomaly(String deviceFingerprint) {
+        // 检查设备是否异常
+        return false;
+    }
+
+    private boolean isIpAnomaly(String ipAddress) {
+        // 检查IP是否异常
+        return false;
+    }
+
+    private boolean isEmulator(DeviceFingerprint fp) {
+        // 检测模拟器
+        return fp.getDeviceType() != null && 
+               (fp.getDeviceType().contains("emulator") || fp.getOs().contains("Android"));
+    }
+
+    private String getRiskLevel(int score) {
+        if (score >= 80) return "critical";
+        if (score >= 60) return "high";
+        if (score >= 30) return "medium";
+        return "low";
+    }
+
+    private String makeDecision(int score) {
+        if (score >= 80) return "block";
+        if (score >= 60) return "review";
+        if (score >= 30) return "alert";
+        return "allow";
+    }
+
+    private String getSuggestion(int score) {
+        if (score >= 80) return "直接拦截";
+        if (score >= 60) return "建议人工审核";
+        if (score >= 30) return "建议验证码验证";
+        return "正常通过";
+    }
+
+    private void saveRiskEvent(String eventType, Long userId, Long orderId, Long paymentId,
+                                String riskLevel, List<String> triggeredRules, int riskScore,
+                                String decision, String ipAddress, String deviceFingerprint) {
+        RiskEvent event = RiskEvent.builder()
+                .eventId("EVT" + System.currentTimeMillis())
+                .eventType(eventType)
+                .userId(userId)
+                .orderId(orderId)
+                .paymentId(paymentId)
+                .riskLevel(riskLevel)
+                .triggeredRules(String.join(",", triggeredRules))
+                .riskScore(riskScore)
+                .decision(decision)
+                .detail("")
+                .ipAddress(ipAddress)
+                .deviceFingerprint(deviceFingerprint)
+                .build();
+        
+        riskEventMapper.insert(event);
+    }
+
+    // ==================== DTO 类 ====================
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class RiskDecision {
+        private String decision;
+        private String riskLevel;
+        private Integer riskScore;
+        private List<String> hitRules;
+        private String suggestion;
+        private boolean hit;
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class BlacklistResult {
+        private boolean hit;
+        private RiskBlacklist record;
+        private String reason;
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class WhitelistResult {
+        private boolean hit;
+        private RiskWhitelist record;
+        private String reason;
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class RuleResult {
+        private String ruleCode;
+        private String ruleName;
+        private boolean hit;
+        private Integer score;
+        private String action;
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class RiskStatistics {
+        private Integer totalEvents;
+        private Integer allowCount;
+        private Integer blockCount;
+        private Integer reviewCount;
+        private Integer alertCount;
+        private Double avgProcessTimeMs;
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class RiskTrendItem {
+        private String date;
+        private Integer eventCount;
+        private Integer blockCount;
+        private Float riskScoreAvg;
+    }
+}

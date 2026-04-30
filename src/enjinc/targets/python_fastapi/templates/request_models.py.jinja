@@ -1,0 +1,16 @@
+# ============================================================
+# request_models.py.jinja - Pydantic 请求体模型
+# ============================================================
+# 为 POST/PUT 端点自动生成 Pydantic request body 模型。
+
+from pydantic import BaseModel
+from typing import Optional, List
+
+{% for model in models %}
+
+class {{ model.name }}(BaseModel):
+{% for field in model.fields %}
+    {{ field.name }}: {{ field.py_type }}{% if field.optional %} = None{% endif %}
+
+{% endfor %}
+{% endfor %}

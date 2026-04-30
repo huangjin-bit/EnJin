@@ -1,0 +1,30 @@
+package config
+
+import "os"
+
+type Config struct {
+	Port      string
+	DBDriver  string
+	DBHost    string
+	DBPort    string
+	DBName    string
+	JWTSecret string
+}
+
+func Load() *Config {
+	return &Config{
+		Port:      getEnv("PORT", "8080"),
+		DBDriver:  getEnv("DB_DRIVER", "postgres"),
+		DBHost:    getEnv("DB_HOST", "localhost"),
+		DBPort:    getEnv("DB_PORT", "5432"),
+		DBName:    getEnv("DB_NAME", "{{ pkg }}"),
+		JWTSecret: getEnv("JWT_SECRET", "change-me"),
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}

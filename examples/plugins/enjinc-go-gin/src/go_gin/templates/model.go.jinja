@@ -1,0 +1,11 @@
+package model
+
+import "time"
+
+// {{ struct.name }} model
+type {{ struct.name }} struct {
+{% for field in struct.fields %}
+{% set go_type = field.type.base | replace("Int", "int64") | replace("Float", "float64") | replace("Bool", "bool") | replace("String", "string") | replace("DateTime", "time.Time") %}
+	{{ field.name | snake_to_camel }}  {{ go_type }}  `json:"{{ field.name }}"`{{ "  // " + field.type.base if field.type.base == "DateTime" else "" }}
+{% endfor %}
+}

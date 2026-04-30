@@ -1,0 +1,18 @@
+# ============================================================
+# playwright/config.py.jinja - Playwright 配置
+# ============================================================
+
+import os
+
+{% set pc = application.get("playwright_config", {}) %}
+PLAYWRIGHT_HEADLESS = {{ pc.headless | default("true") == "true" }}
+PLAYWRIGHT_VIEWPORT_WIDTH = {{ pc.viewport_width | default(1920) }}
+PLAYWRIGHT_VIEWPORT_HEIGHT = {{ pc.viewport_height | default(1080) }}
+
+BROWSER_TYPE = "{{ pc.browser_type | default('chromium') }}"
+
+SCREENSHOT_DIR = os.getenv("SCREENSHOT_DIR", "screenshots")
+PDF_DIR = os.getenv("PDF_DIR", "pdfs")
+
+LOADING_TIMEOUT = {{ pc.loading_timeout | default(30000) }}
+ACTION_TIMEOUT = {{ pc.action_timeout | default(10000) }}

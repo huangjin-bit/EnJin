@@ -1,0 +1,35 @@
+// ============================================================
+// EnJin 全局配置文件
+// 此文件定义整个项目的技术栈、数据库连接和 AI 引擎配置。
+// 严禁在此文件中编写任何业务逻辑。
+// ============================================================
+
+application {
+    name: "user-service"
+    version: "1.0.0"
+    target: "python_fastapi"
+
+    database {
+        driver: "postgresql"
+        host: env("DB_HOST")
+        port: 5432
+        name: "userdb"
+    }
+
+    queue {
+        primary: "kafka"
+        secondary: "rocketmq"
+        default_delivery: "at_least_once"
+    }
+
+    workflow {
+        engine: "temporal"
+    }
+
+    ai {
+        provider: "openai"
+        model: "gpt-4"
+        max_tokens_per_call: 2000
+        cache_strategy: "ast_hash"
+    }
+}

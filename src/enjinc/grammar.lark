@@ -1,0 +1,144 @@
+// ============================================================
+// EnJin 语法定义文件 (grammar.lark)
+// ============================================================
+// 解析器: Lark (Earley 模式)
+// 本文件定义 .ej 源码的完整 EBNF 语法。
+// 维护协议: 修改前必须先更新 docs/01_language_spec/syntax.md
+// ============================================================
+
+// ----------------------------------------------------------
+// 顶层规则
+// ----------------------------------------------------------
+start: _NL* (top_level_decl _NL*)*
+
+?top_level_decl: struct_def
+              | fn_def
+              | module_def
+              | route_def
+              | application_def
+
+// ----------------------------------------------------------
+// [Model 层] struct 定义
+// ----------------------------------------------------------
+struct_def: annotation_list _NL* "struct" NAME _NL* "{" _NL* field_list _NL* "}"
+
+field_list: (field_def _NL*)*
+field_def: NAME ":" type_ref annotation_list
+
+// ----------------------------------------------------------
+// [Method 层] fn 定义（三段意图体）
+// ----------------------------------------------------------
+fn_def: annotation_list _NL* "fn" NAME "(" param_list? ")" ("->" type_ref)? "{" _NL* fn_body _NL* "}"
+
+param_list: param ("," param)*
+param: NAME ":" type_ref
+
+fn_body: (guard_block _NL*)? process_or_native (_NL* expect_block)?
+
+process_or_native: process_block
+                  | native_block+
+
+guard_block: "guard" "{" _NL* guard_rule_list "}"
+guard_rule_list: (guard_rule _NL*)*
+guard_rule: guard_expr ":" ESCAPED_STRING
+
+guard_expr: /[^\n:]+/
+
+process_block: "process" "{" _NL* PROCESS_STRING _NL* "}"
+
+PROCESS_STRING: /"(?s:.*?)(?<!\\)"/
+
+native_block: "native" NAME _NL* "{" _NL* NATIVE_CODE _NL* "}"
+
+NATIVE_CODE: /[^{}]+(?:\{[^{}]*\}[^{}]*)*/
+
+expect_block: "expect" "{" _NL* expect_rule_list "}"
+expect_rule_list: (expect_rule _NL*)*
+expect_rule: /[^\n}]+/
+
+// ----------------------------------------------------------
+// [Module 层] module 定义
+// ----------------------------------------------------------
+module_def: annotation_list _NL* "module" NAME "{" _NL* module_body "}"
+
+module_body: (module_stmt _NL*)*
+?module_stmt: use_decl
+           | export_decl
+           | init_block
+           | schedule_block
+
+export_decl: "export" NAME "=" NAME
+
+use_decl: "use" NAME
+
+init_block: "init" "{" _NL* PROCESS_STRING _NL* "}"
+
+schedule_block: "schedule" NAME "at" ESCAPED_STRING "{" _NL* PROCESS_STRING _NL* "}"
+
+// ----------------------------------------------------------
+// [Service 层] route 定义
+// ----------------------------------------------------------
+route_def: annotation_list _NL* "route" NAME "{" _NL* route_body "}"
+
+route_body: (route_stmt _NL*)*
+?route_stmt: use_decl
+          | endpoint_def
+
+endpoint_def: annotation_list HTTP_METHOD ESCAPED_STRING "->" NAME
+
+HTTP_METHOD: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+
+// ----------------------------------------------------------
+// [全局配置] application 块
+// ----------------------------------------------------------
+application_def: "application" "{" _NL* config_entry_list "}"
+
+config_entry_list: (config_entry _NL*)*
+config_entry: NAME ":" config_value
+           | NAME "{" _NL* config_entry_list "}"
+
+?config_value: ESCAPED_STRING
+            | NUMBER
+            | env_call
+
+env_call: "env" "(" ESCAPED_STRING ")"
+
+// ----------------------------------------------------------
+// 类型系统
+// ----------------------------------------------------------
+?type_ref: optional_type
+        | generic_type
+        | enum_type
+        | base_type
+
+base_type: NAME
+generic_type: NAME "<" type_ref ">"
+optional_type: "Optional" "<" type_ref ">"
+enum_type: "Enum" "(" enum_value_list ")"
+enum_value_list: ESCAPED_STRING ("," ESCAPED_STRING)*
+
+// ----------------------------------------------------------
+// 注解系统
+// ----------------------------------------------------------
+annotation_list: (annotation _NL*)*
+annotation: "@" NAME ("(" annotation_arg_list? ")")?
+
+annotation_arg_list: annotation_arg ("," annotation_arg)*
+?annotation_arg: ESCAPED_STRING
+              | NUMBER
+              | NAME "=" ESCAPED_STRING
+              | NAME "=" NUMBER
+
+// ----------------------------------------------------------
+// 终结符
+// ----------------------------------------------------------
+COMMENT: "//" /[^\n]*/
+_NL: /[\n\r]+/ | COMMENT
+
+%import common.CNAME -> NAME
+%import common.ESCAPED_STRING
+%import common.NUMBER
+%import common.WS_INLINE
+
+%ignore WS_INLINE
+%ignore COMMENT

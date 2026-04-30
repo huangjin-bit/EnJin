@@ -1,0 +1,57 @@
+package {{ pkg }}.interface.dto.request;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import jakarta.validation.constraints.*;
+{% set has_size = false %}
+{% set has_not_blank = false %}
+{% for field in struct.fields %}
+{% for anno in field.annotations %}
+{% if anno.name == 'max_length' %}{% set has_size = true %}{% endif %}
+{% if anno.name == 'min_length' or field.type.base == 'String' %}{% set has_not_blank = true %}{% endif %}
+{% endfor %}
+{% endfor %}
+
+/**
+ * {{ struct.name }} Create Request DTO
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class {{ struct.name }}CreateRequest {
+
+{% for field in struct.fields %}
+{% set ns = namespace(is_primary=false) %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' %}{% set ns.is_primary = true %}{% endif %}
+{% endfor %}
+{% if not ns.is_primary %}
+{% if field.type.base == 'String' %}
+    @NotBlank(message = "{{ field.name | snake_to_camel }} cannot be blank")
+{% for anno in field.annotations %}
+{% if anno.name == 'max_length' %}
+    @Size(max = {{ anno.args[0] }}, message = "{{ field.name | snake_to_camel }} must be at most {{ anno.args[0] }} characters")
+{% endif %}
+{% endfor %}
+{% elif field.type.base == 'Int' %}
+    @NotNull(message = "{{ field.name | snake_to_camel }} cannot be null")
+{% elif field.type.base == 'Float' %}
+    @NotNull(message = "{{ field.name | snake_to_camel }} cannot be null")
+{% endif %}
+{% if field.type.base == 'Int' %}
+    private Long {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Float' %}
+    private Double {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Bool' %}
+    private Boolean {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'DateTime' %}
+    private java.time.LocalDateTime {{ field.name | snake_to_camel }};
+{% else %}
+    private String {{ field.name | snake_to_camel }};
+{% endif %}
+{% endif %}
+{% endfor %}
+}

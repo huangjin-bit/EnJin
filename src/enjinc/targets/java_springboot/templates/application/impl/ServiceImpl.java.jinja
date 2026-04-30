@@ -1,0 +1,68 @@
+package {{ pkg }}.application.service.impl;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import {{ pkg }}.application.service.I{{ struct.name }}Service;
+import {{ pkg }}.domain.entity.{{ struct.name }};
+import {{ pkg }}.infrastructure.mapper.{{ struct.name }}Mapper;
+import {{ pkg }}.infrastructure.exception.DuplicateResourceException;
+import {{ pkg }}.infrastructure.exception.ResourceNotFoundException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * {{ struct.name }} Service Implementation
+ */
+@Service
+public class {{ struct.name }}ServiceImpl extends ServiceImpl<{{ struct.name }}Mapper, {{ struct.name }}>
+        implements I{{ struct.name }}Service {
+
+    @Override
+    public Optional<{{ struct.name }}> findById(Long id) {
+        return Optional.ofNullable(getById(id));
+    }
+
+    @Override
+    public List<{{ struct.name }}> findAll() {
+        return list();
+    }
+
+    @Override
+    @Transactional
+    public {{ struct.name }} create({{ struct.name }} entity) {
+        save(entity);
+        return entity;
+    }
+
+    @Override
+    @Transactional
+    public Optional<{{ struct.name }}> update(Long id, {{ struct.name }} entity) {
+        entity.setId(id);
+        if (updateById(entity)) {
+            return Optional.of(entity);
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    @Transactional
+    public boolean delete(Long id) {
+        return removeById(id);
+    }
+{% if guard_code %}
+{% for fn_name, lines in guard_code.items() %}
+
+    // Guards from {{ fn_name }}
+    // TODO: integrate into corresponding method
+{% for line in lines %}
+    // {{ line | trim }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+{% if ai_code %}
+
+    // AI-generated method
+    {{ ai_code | indent(4, first=True) }}
+{% endif %}
+}

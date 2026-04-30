@@ -1,0 +1,22 @@
+// 最小化爬虫 - 不含 playwright_config，测试模板健壮性
+
+application {
+    name: "minimal-crawler"
+    version: "1.0.0"
+    target: "python_crawler"
+}
+
+struct Item {
+    id: Int @primary
+    title: String @max_length(100)
+}
+
+fn fetch_item(url: String) -> Item {
+    process { "fetch item" }
+}
+
+module CrawlerModule {
+    use fetch_item
+    export fetch = fetch_item
+    init { "init" }
+}

@@ -1,0 +1,163 @@
+// ============================================================
+// EnJin 示例：任务管理系统 (Kanban 风格)
+// 演示状态机 + 多角色 + 团队协作
+// ============================================================
+
+// Model 层
+@table("tm_projects")
+struct Project {
+    id: Int @primary @auto_increment
+    name: String @unique @max_length(100)
+    description: Optional<String>
+    owner_id: Int
+    status: Enum("active", "archived") @default("active")
+    created_at: DateTime @default("now()")
+}
+
+@table("tm_tasks")
+struct Task {
+    id: Int @primary @auto_increment
+    project_id: Int
+    title: String @max_length(200)
+    description: Optional<String>
+    assignee_id: Optional<Int>
+    priority: Enum("low", "medium", "high", "urgent") @default("medium")
+    status: Enum("todo", "in_progress", "review", "done") @default("todo")
+    created_at: DateTime @default("now()")
+    due_date: Optional<DateTime>
+}
+
+@table("tm_task_logs")
+struct TaskLog {
+    id: Int @primary @auto_increment
+    task_id: Int
+    action: String @max_length(50)
+    old_value: Optional<String>
+    new_value: Optional<String>
+    operator_id: Int
+    created_at: DateTime @default("now()")
+}
+
+// Method 层
+@transactional
+fn create_project(name: String, description: String, owner_id: Int) -> Project {
+    guard {
+        name.length > 0 : "项目名不能为空"
+        name.length <= 100 : "项目名过长"
+        not exists(Project, name=name) : "项目名已存在"
+        owner_id > 0 : "所有者ID无效"
+    }
+    process { "创建新项目" }
+}
+
+fn list_projects(owner_id: Int) -> List<Project> {
+    guard {
+        owner_id > 0 : "用户ID无效"
+    }
+    process { "查询该用户拥有的所有活跃项目" }
+}
+
+@transactional
+fn create_task(project_id: Int, title: String, priority: String) -> Task {
+    guard {
+        project_id > 0 : "项目ID无效"
+        title.length > 0 : "任务标题不能为空"
+        priority == "low" or priority == "medium" or priority == "high" or priority == "urgent" : "无效优先级"
+    }
+    process { "在指定项目中创建新任务，状态默认为 todo" }
+}
+
+@transactional
+fn move_task(task_id: Int, new_status: String, operator_id: Int) -> Task {
+    guard {
+        task_id > 0 : "任务ID无效"
+        operator_id > 0 : "操作者ID无效"
+        new_status == "todo" or new_status == "in_progress" or new_status == "review" or new_status == "done" : "无效状态"
+    }
+    process {
+        "将任务移动到新状态。
+         同时创建一条 TaskLog 记录状态变更（action='status_change'）。
+         只允许相邻状态转换: todo→in_progress→review→done"
+    }
+}
+
+@transactional
+fn assign_task(task_id: Int, assignee_id: Int, operator_id: Int) -> Task {
+    guard {
+        task_id > 0 : "任务ID无效"
+        assignee_id > 0 : "被指派人ID无效"
+        operator_id > 0 : "操作者ID无效"
+    }
+    process { "将任务指派给指定用户，同时记录 TaskLog" }
+}
+
+fn get_tasks_by_project(project_id: Int) -> List<Task> {
+    guard {
+        project_id > 0 : "项目ID无效"
+    }
+    process { "查询指定项目下所有任务，按优先级和状态排序" }
+}
+
+// native 逃生舱：生成任务编号
+fn generate_task_code(project_id: Int) -> String {
+    native python {
+        import time
+        prefix = "TSK"
+        timestamp = int(time.time()) % 100000
+        return f"{prefix}-{project_id:03d}-{timestamp:05d}"
+    }
+}
+
+// Module 层
+module ProjectManager {
+    use Project
+    use Task
+    use TaskLog
+    use create_project
+    use list_projects
+    use create_task
+
+    export create = create_project
+    export list = list_projects
+    export add_task = create_task
+}
+
+module TaskManager {
+    use Task
+    use TaskLog
+    use move_task
+    use assign_task
+    use get_tasks_by_project
+    use generate_task_code
+
+    export move = move_task
+    export assign = assign_task
+    export list = get_tasks_by_project
+    export gen_code = generate_task_code
+
+    schedule daily at "00:00" {
+        "检查所有过期未完成的任务，将状态为 in_progress 且 due_date 已过的任务标记为需关注。"
+    }
+}
+
+// Service 层
+@prefix("/api/v1/projects")
+@auth("jwt")
+route ProjectService {
+    use ProjectManager
+
+    POST   "/"              -> create
+    GET    "/"              -> list
+    POST   "/{id}/tasks"    -> add_task
+}
+
+@prefix("/api/v1/tasks")
+@auth("jwt")
+route TaskService {
+    use TaskManager
+
+    GET    "/"                     -> list
+    PUT    "/{id}/status"         -> move
+    PUT    "/{id}/assign"         -> assign
+    GET    "/code/{id}"           -> gen_code
+}

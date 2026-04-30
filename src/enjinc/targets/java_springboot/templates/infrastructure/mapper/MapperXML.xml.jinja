@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="{{ pkg }}.infrastructure.mapper.{{ struct.name }}Mapper">
+
+    <resultMap id="BaseResultMap" type="{{ pkg }}.domain.entity.{{ struct.name }}">
+{% for field in struct.fields %}
+        <result column="{{ field.name }}" property="{{ field.name | snake_to_camel }}"/>
+{% endfor %}
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        {{ struct.fields | map(attribute='name') | join(', ') }}
+    </sql>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM {{ table_name }}
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM {{ table_name }}
+        ORDER BY id DESC
+    </select>
+
+    <insert id="insert" parameterType="{{ pkg }}.domain.entity.{{ struct.name }}" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO {{ table_name }} (
+            {{ insert_columns }}
+        ) VALUES (
+            {{ insert_placeholders }}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="{{ pkg }}.domain.entity.{{ struct.name }}">
+        UPDATE {{ table_name }}
+        SET
+{% for field in struct.fields %}
+{% if field.name != 'id' %}
+            {{ field.name }} = #{ {{ field.name | snake_to_camel }} }{% if not loop.last %},{% endif %}
+
+{% endif %}
+{% endfor %}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM {{ table_name }} WHERE id = #{id}
+    </delete>
+
+</mapper>

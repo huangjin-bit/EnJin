@@ -1,0 +1,30 @@
+# ============================================================
+# crawl_tasks.py.jinja - 爬虫任务函数
+# ============================================================
+
+import asyncio
+from typing import Optional, List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+{% for item in functions %}
+
+{% if item.ai_code %}
+# --- AI-generated: {{ item.fn.name }} ---
+{{ item.ai_code }}
+
+{% else %}
+async def {{ item.fn.name }}({{ item.params_str }}):
+    """{{ item.fn.process.intent | default('crawl task') | replace('"', '') }}"""
+{% if item.fn.guard %}
+    # Guard rules:
+{% for rule in item.fn.guard %}
+    #   {{ rule.expr }} : {{ rule.message }}
+{% endfor %}
+{% endif %}
+    raise NotImplementedError("{{ item.fn.name }} not yet implemented")
+
+{% endif %}
+{% endfor %}

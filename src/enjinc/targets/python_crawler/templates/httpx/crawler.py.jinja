@@ -1,0 +1,220 @@
+# ============================================================
+# crawler.py.jinja - 异步爬虫主类
+# ============================================================
+
+import asyncio
+import time
+from typing import Optional, List, Dict, Any, Callable
+from urllib.parse import urljoin, urlparse
+import httpx
+from bs4 import BeautifulSoup
+import logging
+
+import config
+from proxy_pool import get_proxy_pool, Proxy
+from rate_limiter import get_rate_limiter, RateLimiter
+
+logger = logging.getLogger(__name__)
+
+
+class CrawlerResponse:
+    def __init__(
+        self,
+        url: str,
+        status_code: int,
+        content: bytes,
+        headers: Dict[str, str],
+        proxy: Optional[Proxy] = None,
+        response_time: float = 0,
+    ):
+        self.url = url
+        self.status_code = status_code
+        self.content = content
+        self.headers = headers
+        self.proxy = proxy
+        self.response_time = response_time
+
+    @property
+    def text(self) -> str:
+        return self.content.decode("utf-8", errors="replace")
+
+    def soup(self) -> BeautifulSoup:
+        return BeautifulSoup(self.text, "html.parser")
+
+    def json(self) -> dict:
+        import json
+        return json.loads(self.content)
+
+
+class Crawler:
+    def __init__(
+        self,
+        name: str = None,
+        max_concurrent: int = None,
+        max_per_domain: int = None,
+    ):
+        self.name = name or config.CRAWLER_NAME
+        self.max_concurrent = max_concurrent or config.MAX_CONCURRENT_REQUESTS
+        self.max_per_domain = max_per_domain or config.MAX_CONCURRENT_PER_DOMAIN
+
+        self.proxy_pool = get_proxy_pool()
+        self.rate_limiter = get_rate_limiter()
+
+        self._client: Optional[httpx.AsyncClient] = None
+        self._domain_semaphores: Dict[str, asyncio.Semaphore] = {}
+        self._visited_urls: set = set()
+        self._lock = asyncio.Lock()
+
+        self.start_time = time.time()
+        self.stats = {
+            "requests": 0,
+            "success": 0,
+            "failed": 0,
+            "retries": 0,
+        }
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=config.REQUEST_TIMEOUT,
+                follow_redirects=True,
+                limits=httpx.Limits(
+                    max_connections=self.max_concurrent,
+                    max_keepalive_connections=self.max_per_domain,
+                ),
+            )
+        return self._client
+
+    def _create_proxied_client(self, proxy_url: str) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            proxy=proxy_url,
+            timeout=config.REQUEST_TIMEOUT,
+            follow_redirects=True,
+            limits=httpx.Limits(
+                max_connections=self.max_concurrent,
+                max_keepalive_connections=self.max_per_domain,
+            ),
+        )
+
+    def _get_domain(self, url: str) -> str:
+        return urlparse(url).netloc
+
+    async def _get_domain_semaphore(self, domain: str) -> asyncio.Semaphore:
+        if domain not in self._domain_semaphores:
+            self._domain_semaphores[domain] = asyncio.Semaphore(self.max_per_domain)
+        return self._domain_semaphores[domain]
+
+    async def fetch(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: Dict[str, str] = None,
+        **kwargs,
+    ) -> Optional[CrawlerResponse]:
+        if config.RATE_LIMIT_ENABLED:
+            await self.rate_limiter.wait_for_token(self._get_domain(url))
+
+        domain_sem = await self._get_domain_semaphore(self._get_domain(url))
+        async with domain_sem:
+            proxy = await self.proxy_pool.get_proxy() if config.PROXY_POOL_ENABLED else None
+
+            if proxy:
+                client = self._create_proxied_client(proxy.url)
+                own_client = True
+            else:
+                client = await self._get_client()
+                own_client = False
+
+            start_time = time.time()
+
+            try:
+                for attempt in range(config.MAX_RETRIES):
+                    try:
+                        merged_headers = {**config.DEFAULT_HEADERS, **(headers or {})}
+                        response = await client.request(
+                            method=method,
+                            url=url,
+                            headers=merged_headers,
+                            **kwargs,
+                        )
+
+                        response_time = time.time() - start_time
+
+                        if proxy:
+                            await self.proxy_pool.release_proxy(proxy, True, response_time)
+
+                        self.stats["requests"] += 1
+                        self.stats["success"] += 1
+
+                        return CrawlerResponse(
+                            url=str(response.url),
+                            status_code=response.status_code,
+                            content=response.content,
+                            headers=dict(response.headers),
+                            proxy=proxy,
+                            response_time=response_time,
+                        )
+
+                    except Exception as e:
+                        logger.warning(f"Request failed (attempt {attempt + 1}): {url} - {e}")
+                        self.stats["retries"] += 1
+
+                        if proxy:
+                            await self.proxy_pool.release_proxy(proxy, False)
+
+                        if attempt < config.MAX_RETRIES - 1:
+                            await asyncio.sleep(config.RETRY_DELAY * (attempt + 1))
+                        else:
+                            self.stats["failed"] += 1
+                            return None
+            finally:
+                if own_client:
+                    await client.aclose()
+
+        return None
+
+    async def crawl(
+        self,
+        urls: List[str],
+        callback: Callable[[CrawlerResponse], Any] = None,
+    ):
+        tasks = []
+        for url in urls:
+            if url not in self._visited_urls:
+                async with self._lock:
+                    self._visited_urls.add(url)
+                tasks.append(self._crawl_with_callback(url, callback))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _crawl_with_callback(
+        self,
+        url: str,
+        callback: Callable[[CrawlerResponse], Any] = None,
+    ):
+        response = await self.fetch(url)
+        if response and callback:
+            try:
+                await callback(response)
+            except Exception as e:
+                logger.error(f"Callback error for {url}: {e}")
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+        elapsed = time.time() - self.start_time
+        logger.info(
+            f"[{self.name}] Finished in {elapsed:.2f}s. "
+            f"Requests: {self.stats['requests']}, "
+            f"Success: {self.stats['success']}, "
+            f"Failed: {self.stats['failed']}, "
+            f"Retries: {self.stats['retries']}"
+        )
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()

@@ -1,0 +1,61 @@
+package {{ application.name.replace("-", "_") }}.domain.entity;
+
+{% for struct in risk_structs %}
+/**
+ * {{ struct.name }} Entity - 风控相关
+ */
+@lombok.Data
+@lombok.NoArgsConstructor
+@lombok.AllArgsConstructor
+@lombok.Builder
+@Entity
+@Table(name = "{{ struct.name | lower }}s")
+public class {{ struct.name }} {
+
+{% for field in struct.fields %}
+{% if field.annotations %}
+{% for ann in field.annotations %}
+{% if ann.name == 'primary' %}
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+{% elif ann.name == 'auto_increment' %}
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+{% elif ann.name == 'unique' %}
+    @Column(name = "{{ field.name }}", unique = true)
+{% elif ann.name == 'foreign_key' %}
+    @Column(name = "{{ field.name }}")
+{% elif ann.name == 'max_length' %}
+    @Column(name = "{{ field.name }}", length = {{ ann.args[0] }})
+{% elif ann.name == 'default' %}
+    @Column(name = "{{ field.name }}")
+{% else %}
+    @Column(name = "{{ field.name }}")
+{% endif %}
+{% endfor %}
+{% else %}
+    @Column(name = "{{ field.name }}")
+{% endif %}
+
+{% if field.type.base == 'Int' %}
+    private Long {{ field.name }};
+{% elif field.type.base == 'Float' %}
+    private Double {{ field.name }};
+{% elif field.type.base == 'Bool' %}
+    private Boolean {{ field.name }};
+{% elif field.type.base == 'DateTime' %}
+    private java.time.LocalDateTime {{ field.name }};
+{% elif field.type.base == 'String' %}
+    private String {{ field.name }};
+{% elif field.type.base == 'Enum' %}
+    private String {{ field.name }};
+{% elif field.type.base == 'Optional' %}
+    private {{ field.type.params[0].base }} {{ field.name }};
+{% elif field.type.base == 'List' %}
+    private java.util.List<{{ field.type.params[0].base if field.type.params else 'Object' }}> {{ field.name }};
+{% else %}
+    private {{ field.type.base }} {{ field.name }};
+{% endif %}
+{% endfor %}
+
+}
+{% endfor %}

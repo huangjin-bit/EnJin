@@ -1,0 +1,32 @@
+// Auto-generated JUnit tests for {{ fn.name }}
+// Generated from EnJin expect assertions
+package {{ fn.name.replace("-", "_").replace("_", "") }};
+
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+class Test{{ fn.name.replace("-", "_").replace("_", "").title() }} {
+    {% for assertion in assertions %}
+    @Test
+    void test{{ fn.name.replace("-", "_").replace("_", "").title() }}_{{ loop.index }}() {
+        {% if assertion.assertion_type.value == 'throws' %}
+        assertThrows(Exception.class, () -> {
+            {{ assertion.fn_call }};
+        });
+        {% elif assertion.assertion_type.value == 'property_eq' %}
+        var result = {{ assertion.fn_call }};
+        {% if assertion.property_path %}
+        assertEquals({{ assertion.expected_value }}, result.{{ assertion.property_path }}());
+        {% else %}
+        assertEquals({{ assertion.expected_value }}, result);
+        {% endif %}
+        {% elif assertion.assertion_type.value == 'status_eq' %}
+        var result = {{ assertion.fn_call }};
+        assertEquals({{ assertion.expected_value }}, result.getStatus());
+        {% elif assertion.assertion_type.value == 'contains' %}
+        var result = {{ assertion.fn_call }};
+        assertTrue(result.contains({{ assertion.expected_value }}));
+        {% endif %}
+    }
+    {% endfor %}
+}

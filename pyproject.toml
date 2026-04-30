@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enjinc"
+version = "0.1.0"
+description = "EnJin Compiler - Intent-Driven AI-Native Meta-Programming Language"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    "lark>=1.1.9",       # 解析器生成器：将 .ej 语法转化为 Parse Tree
+    "jinja2>=3.1.3",     # 模板引擎：静态骨架代码生成
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",     # 单元测试框架
+    "pytest-cov>=4.1.0", # 测试覆盖率
+]
+ai = [
+    "httpx>=0.25.0",     # LLM API HTTP 客户端
+]
+
+# CLI 入口点：安装后可直接使用 `enjinc` 命令
+[project.scripts]
+enjinc = "enjinc.cli:main"
+
+# 目标栈插件入口点：第三方扩展通过相同 group 注册
+[project.entry-points."enjinc.targets"]
+python_fastapi = "enjinc.targets.python_fastapi.renderer"
+java_springboot = "enjinc.targets.java_springboot.renderer"
+python_crawler = "enjinc.targets.python_crawler.renderer"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

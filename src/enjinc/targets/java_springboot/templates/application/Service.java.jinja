@@ -1,0 +1,56 @@
+package {{ application.name | replace("-", "_") }}.application.service;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import {{ application.name | replace("-", "_") }}.domain.entity.{{ struct.name }};
+import {{ application.name | replace("-", "_") }}.infrastructure.mapper.{{ struct.name }}Mapper;
+import {{ application.name | replace("-", "_") }}.infrastructure.exception.DuplicateResourceException;
+import {{ application.name | replace("-", "_") }}.infrastructure.exception.ResourceNotFoundException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * {{ struct.name }} Service
+ */
+@Service
+public class {{ struct.name }}Service extends ServiceImpl<{{ struct.name }}Mapper, {{ struct.name }}> {
+
+    public Optional<{{ struct.name }}> findById(Long id) {
+        return Optional.ofNullable(getById(id));
+    }
+
+    public List<{{ struct.name }}> findAll() {
+        return list();
+    }
+
+    @Transactional
+    public {{ struct.name }} create({{ struct.name }} entity) {
+        save(entity);
+        return entity;
+    }
+
+    @Transactional
+    public Optional<{{ struct.name }}> update(Long id, {{ struct.name }} entity) {
+        entity.setId(id);
+        if (updateById(entity)) {
+            return Optional.of(entity);
+        }
+        return Optional.empty();
+    }
+
+    @Transactional
+    public boolean delete(Long id) {
+        return removeById(id);
+    }
+{% if guard_code %}
+{% for line in guard_code %}
+    {{ line }}
+{% endfor %}
+{% endif %}
+{% if ai_code %}
+
+    // AI-generated method from fn
+    {{ ai_code | indent(4, first=True) }}
+{% endif %}
+}

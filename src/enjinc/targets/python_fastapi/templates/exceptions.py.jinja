@@ -1,0 +1,47 @@
+# ============================================================
+# exceptions.py.jinja - 自定义异常基类 (基建层，非 AI 生成)
+# ============================================================
+
+from fastapi import HTTPException
+
+
+class AppException(HTTPException):
+    """应用基础异常。"""
+
+    def __init__(self, status_code: int = 500, detail: str = "Internal server error"):
+        super().__init__(status_code=status_code, detail=detail)
+
+
+class ResourceNotFoundException(AppException):
+    """资源未找到。"""
+
+    def __init__(self, resource: str = "Resource", resource_id: str = ""):
+        msg = f"{resource} not found" + (f": {resource_id}" if resource_id else "")
+        super().__init__(status_code=404, detail=msg)
+
+
+class DuplicateResourceException(AppException):
+    """资源重复。"""
+
+    def __init__(self, resource: str = "Resource", field: str = "", value: str = ""):
+        msg = f"{resource} already exists"
+        if field and value:
+            msg += f" ({field}={value})"
+        super().__init__(status_code=409, detail=msg)
+
+
+class BusinessException(AppException):
+    """业务逻辑异常。"""
+
+    def __init__(self, detail: str = "Business rule violation"):
+        super().__init__(status_code=422, detail=detail)
+
+
+class ConflictError(DuplicateResourceException):
+    """Guard not_exists() 违规 → 409。"""
+    pass
+
+
+class NotFoundError(ResourceNotFoundException):
+    """Guard exists() 违规 → 404。"""
+    pass

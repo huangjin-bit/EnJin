@@ -1,0 +1,22 @@
+package {{ application.name | replace("-", "_") }}.infrastructure.exception;
+
+/**
+ * 应用基础异常。
+ */
+public class AppException extends RuntimeException {
+
+    private final int statusCode;
+
+    public AppException(String message) {
+        this(500, message);
+    }
+
+    public AppException(int statusCode, String message) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+
+    public int getStatusCode() {
+        return statusCode;
+    }
+}

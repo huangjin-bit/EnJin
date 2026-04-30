@@ -1,0 +1,113 @@
+# ============================================================
+# rate_limiter.py.jinja - 速率限制器
+# ============================================================
+
+import time
+import asyncio
+from typing import Optional, Dict
+from dataclasses import dataclass
+import logging
+
+import config
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TokenBucket:
+    tokens: float
+    last_update: float
+    capacity: float
+    refill_rate: float
+
+    def consume(self, tokens: int = 1) -> bool:
+        now = time.time()
+        elapsed = now - self.last_update
+        self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
+        self.last_update = now
+
+        if self.tokens >= tokens:
+            self.tokens -= tokens
+            return True
+        return False
+
+
+class RateLimiter:
+    def __init__(self):
+        self.redis_client = None
+        self.buckets: Dict[str, TokenBucket] = {}
+        self._lock = asyncio.Lock()
+        if config.RATE_LIMIT_ENABLED:
+            self._init_redis()
+
+    def _init_redis(self):
+        try:
+            import redis
+            self.redis_client = redis.Redis(
+                host=config.REDIS_HOST,
+                port=config.REDIS_PORT,
+                db=config.REDIS_DB,
+                password=config.REDIS_PASSWORD,
+                decode_responses=True,
+            )
+        except Exception as e:
+            logger.warning(f"Redis connection failed, rate limit persistence disabled: {e}")
+            self.redis_client = None
+
+    async def acquire(self, key: str = "default") -> bool:
+        async with self._lock:
+            if key not in self.buckets:
+                self.buckets[key] = TokenBucket(
+                    tokens=config.RATE_LIMIT_BURST,
+                    last_update=time.time(),
+                    capacity=config.RATE_LIMIT_BURST,
+                    refill_rate=config.RATE_LIMIT_REQUESTS_PER_SECOND,
+                )
+            return self.buckets[key].consume()
+
+    async def wait_for_token(self, key: str = "default"):
+        while not await self.acquire(key):
+            await asyncio.sleep(0.1)
+
+    def _get_from_redis(self, key: str) -> Optional[TokenBucket]:
+        if self.redis_client is None:
+            return None
+        try:
+            import json
+            data = self.redis_client.get(f"rate_limit:{key}")
+            if data:
+                d = json.loads(data)
+                return TokenBucket(
+                    tokens=d["tokens"],
+                    last_update=d["last_update"],
+                    capacity=d["capacity"],
+                    refill_rate=d["refill_rate"],
+                )
+        except Exception as e:
+            logger.warning(f"Failed to read rate limit from Redis: {e}")
+        return None
+
+    def _save_to_redis(self, key: str, bucket: TokenBucket):
+        if self.redis_client is None:
+            return
+        try:
+            import json
+            data = {
+                "tokens": bucket.tokens,
+                "last_update": bucket.last_update,
+                "capacity": bucket.capacity,
+                "refill_rate": bucket.refill_rate,
+            }
+            self.redis_client.set(f"rate_limit:{key}", json.dumps(data))
+        except Exception as e:
+            logger.warning(f"Failed to save rate limit to Redis: {e}")
+
+
+_rate_limiter: Optional[RateLimiter] = None
+
+
+def get_rate_limiter() -> RateLimiter:
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = RateLimiter()
+    return _rate_limiter

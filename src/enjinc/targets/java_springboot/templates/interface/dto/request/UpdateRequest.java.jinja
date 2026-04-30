@@ -1,0 +1,36 @@
+package {{ pkg }}.interface.dto.request;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+
+/**
+ * {{ struct.name }} Update Request DTO
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class {{ struct.name }}UpdateRequest {
+
+{% for field in struct.fields %}
+{% set ns = namespace(is_primary=false) %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' %}{% set ns.is_primary = true %}{% endif %}
+{% endfor %}
+{% if not ns.is_primary %}
+{% if field.type.base == 'Int' %}
+    private Long {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Float' %}
+    private Double {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Bool' %}
+    private Boolean {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'DateTime' %}
+    private java.time.LocalDateTime {{ field.name | snake_to_camel }};
+{% else %}
+    private String {{ field.name | snake_to_camel }};
+{% endif %}
+{% endif %}
+{% endfor %}
+}

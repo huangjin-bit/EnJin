@@ -1,0 +1,75 @@
+# ============================================================
+# scrapy/spiders/base.py.jinja - Scrapy Spider 基类
+# ============================================================
+
+import scrapy
+from scrapy import signals
+from scrapy.signalmanager import dispatcher
+from typing import List, Callable, Any
+import asyncio
+
+import config
+
+
+class BaseSpider(scrapy.Spider):
+    name = "{{ spider_name | default('base_spider') }}"
+    allowed_domains = {{ allowed_domains | default([]) }}
+    start_urls = {{ start_urls | default([]) }}
+
+    custom_settings = {
+        "CONCURRENT_REQUESTS": config.MAX_CONCURRENT_REQUESTS,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": config.MAX_CONCURRENT_PER_DOMAIN,
+        "DOWNLOAD_TIMEOUT": config.REQUEST_TIMEOUT,
+        "RETRY_TIMES": config.MAX_RETRIES,
+        "COOKIES_ENABLED": False,
+        "TELNETCONSOLE_ENABLED": False,
+        "AUTOTHROTTLE_ENABLED": config.RATE_LIMIT_ENABLED,
+        "AUTOTHROTTLE_START_DELAY": 1,
+        "AUTOTHROTTLE_MAX_DELAY": 10,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": config.RATE_LIMIT_REQUESTS_PER_SECOND,
+        "HTTPCACHE_ENABLED": True,
+        "HTTPCACHE_EXPIRATION_SECS": 86400,
+        "HTTPCACHE_DIR": "httpcache",
+        "LOG_LEVEL": config.LOG_LEVEL,
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stats_dict = {
+            "requests": 0,
+            "success": 0,
+            "failed": 0,
+        }
+
+    def start_requests(self):
+        for url in self.start_urls:
+            yield self.make_requests_from_url(url)
+
+    def make_requests_from_url(self, url):
+        return scrapy.Request(
+            url=url,
+            callback=self.parse,
+            errback=self.handle_error,
+            dont_filter=False,
+        )
+
+    def parse(self, response, **kwargs):
+        raise NotImplementedError(f"{self.__class__.__name__} must implement parse()")
+
+    def handle_error(self, failure):
+        self.logger.error(f"Request failed: {failure.request.url} - {failure.value}")
+        self.stats_dict["failed"] += 1
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        crawler.signals.connect(spider.spider_closed, signal=signals.spider_closed)
+        return spider
+
+    def spider_closed(self, spider):
+        self.logger.info(
+            f"[{self.name}] Finished. "
+            f"Requests: {self.stats_dict['requests']}, "
+            f"Success: {self.stats_dict['success']}, "
+            f"Failed: {self.stats_dict['failed']}"
+        )

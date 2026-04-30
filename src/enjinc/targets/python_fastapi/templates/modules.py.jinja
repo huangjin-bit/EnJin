@@ -1,0 +1,63 @@
+# ============================================================
+# modules.py.jinja - 模块初始化与调度模板
+# ============================================================
+
+import asyncio
+from typing import Dict, Any
+
+# ============================================================
+# 模块注册表
+# ============================================================
+MODULE_REGISTRY: Dict[str, Any] = {}
+
+
+# ============================================================
+# 模块初始化逻辑
+# ============================================================
+{% for module in modules %}
+
+def init_{{ module.name.lower() }}():
+    """Initialize {{ module.name }} module."""
+    # Init intent: {{ module.init.intent if module.init else 'None' }}
+    pass
+
+MODULE_REGISTRY["{{ module.name }}"] = {
+    "init": init_{{ module.name.lower() }},
+    "schedules": [],
+}
+
+# Schedule task definitions
+{% for schedule in module.schedules %}
+def schedule_{{ module.name.lower() }}_{{ loop.index }}():
+    """Scheduled task: {{ schedule.intent | replace('\n', ' ') }}"""
+    pass
+{% endfor %}
+
+# Register schedule tasks
+{% for schedule in module.schedules %}
+MODULE_REGISTRY["{{ module.name }}"]["schedules"].append({
+    "frequency": "{{ schedule.frequency }}",
+    "cron": "{{ schedule.cron }}",
+    "handler": schedule_{{ module.name.lower() }}_{{ loop.index }},
+    "intent": "{{ schedule.intent | replace('\n', ' ') }}",
+})
+{% endfor %}
+
+{% endfor %}
+
+
+# ============================================================
+# 全局模块初始化入口
+# ============================================================
+
+async def init_all_modules():
+    """Initialize all modules."""
+    for module_name, module_info in MODULE_REGISTRY.items():
+        init_fn = module_info.get("init")
+        if init_fn and callable(init_fn):
+            await asyncio.to_thread(init_fn)
+
+
+async def start_all_schedulers():
+    """Start all background schedulers."""
+    pass

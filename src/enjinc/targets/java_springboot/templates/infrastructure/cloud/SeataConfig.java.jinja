@@ -1,0 +1,16 @@
+package {{ pkg }}.infrastructure.config;
+
+import io.seata.spring.annotation.GlobalTransactional;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * Seata AT 模式分布式事务配置。
+ * 在需要跨服务事务的方法上使用 @GlobalTransactional 注解。
+ *
+ * 需要在 application.yml 中配置 seata.registry 和 seata.service。
+ */
+@Configuration
+public class SeataConfig {
+
+}

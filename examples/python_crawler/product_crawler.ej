@@ -1,0 +1,220 @@
+// ============================================================
+// EnJin 示例：Python 爬虫系统
+// 本文件展示 EnJin 在 Python 爬虫场景的完整写法。
+// 使用 httpx + Scrapy + Playwright 三种爬虫框架。
+// ============================================================
+
+application {
+    name: "product-crawler"
+    version: "1.0.0"
+    target: "python_crawler"
+
+    request_config {
+        timeout: 30
+        max_retries: 3
+        retry_delay: 1
+    }
+
+    proxy_config {
+        enabled: "true"
+        pool_size: 20
+        min_score: 60
+        check_interval: 300
+    }
+
+    rate_limit {
+        enabled: "true"
+        requests_per_second: 10
+        burst: 20
+    }
+
+    concurrency {
+        max_concurrent_requests: 5
+        max_concurrent_per_domain: 2
+    }
+
+    storage {
+        type: "mongodb"
+        mongodb_uri: "mongodb://localhost:27017"
+        database: "product_db"
+        collection: "products"
+    }
+
+    playwright_config {
+        headless: "true"
+        browser_type: "chromium"
+        viewport_width: 1920
+        viewport_height: 1080
+        loading_timeout: 30000
+        action_timeout: 10000
+    }
+
+    start_url_1: "https://example.com/products"
+    start_url_2: "https://example.com/categories"
+    allowed_domain: "example.com"
+}
+
+// ----------------------------------------------------------
+// [Model 层] 数据模型定义
+// ----------------------------------------------------------
+
+@table("products")
+struct Product {
+    product_id: String @unique
+    name: String
+    price: Float
+    original_price: Float
+    currency: String @default("USD")
+    description: Optional<String>
+    category: String
+    subcategory: Optional<String>
+    brand: Optional<String>
+    images: List<String>
+    rating: Float
+    review_count: Int
+    in_stock: Bool
+    seller: String
+    url: String @unique
+    crawled_at: DateTime @default("now()")
+}
+
+@table("categories")
+struct Category {
+    category_id: String @unique
+    name: String
+    parent_id: Optional<String>
+    url: String @unique
+    product_count: Int
+    crawled_at: DateTime @default("now()")
+}
+
+@table("reviews")
+struct Review {
+    review_id: String @unique
+    product_id: String
+    user: String
+    rating: Float
+    title: Optional<String>
+    content: Optional<String>
+    images: List<String>
+    verified: Bool
+    created_at: DateTime
+    helpful_count: Int
+    crawled_at: DateTime @default("now()")
+}
+
+@table("price_history")
+struct PriceHistory {
+    id: Int @primary @auto_increment
+    product_id: String
+    price: Float
+    recorded_at: DateTime @default("now()")
+}
+
+// ----------------------------------------------------------
+// [Method 层] 爬虫方法定义
+// ----------------------------------------------------------
+
+// 产品列表页爬取
+fn crawl_product_list(page: Int, page_size: Int) -> List<String> {
+    process {
+        "爬取产品列表页"
+    }
+}
+
+// 产品详情页爬取
+fn crawl_product_detail(url: String) -> Product {
+    process {
+        "解析产品详情页"
+    }
+}
+
+// 分类页爬取
+fn crawl_category_list() -> List<Category> {
+    process {
+        "爬取分类列表页"
+    }
+}
+
+// 评论爬取
+fn crawl_product_reviews(product_id: String, page: Int) -> List<Review> {
+    process {
+        "爬取产品评论"
+    }
+}
+
+// 搜索功能
+fn search_products(keyword: String, page: Int, page_size: Int) -> List<Product> {
+    process {
+        "搜索产品"
+    }
+}
+
+// 价格预警
+fn check_price_alert(product_id: String, threshold: Float) -> Bool {
+    guard {
+        threshold > 0 : "阈值必须大于0"
+    }
+
+    process {
+        "检查价格预警"
+    }
+}
+
+// ----------------------------------------------------------
+// [Module 层] 爬虫模块
+// ----------------------------------------------------------
+
+module HttpxCrawler {
+    use Product
+    use Category
+    use crawl_product_list
+    use crawl_product_detail
+    use crawl_category_list
+    use search_products
+
+    export crawl_list = crawl_product_list
+    export crawl_detail = crawl_product_detail
+    export crawl_category = crawl_category_list
+    export search = search_products
+
+    init {
+        "初始化httpx异步爬虫"
+    }
+
+    schedule daily at "00:00" {
+        "全量爬取产品列表"
+    }
+}
+
+module ScrapyCrawler {
+    use Review
+    use PriceHistory
+    use crawl_product_reviews
+
+    export crawl_reviews = crawl_product_reviews
+
+    init {
+        "初始化Scrapy分布式爬虫"
+    }
+
+    schedule daily at "06:00" {
+        "爬取用户评论"
+    }
+}
+
+module PlaywrightCrawler {
+    use Product
+    use check_price_alert
+
+    export detail = crawl_product_detail
+    export alert = check_price_alert
+
+    init {
+        "初始化Playwright无头浏览器"
+    }
+
+    schedule daily at "02:00" {
+        "竞品价格分析"
+    }
+}

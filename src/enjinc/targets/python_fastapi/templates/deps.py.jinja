@@ -1,0 +1,27 @@
+# ============================================================
+# deps.py.jinja - 认证依赖 (基建层)
+# ============================================================
+# JWT 认证依赖函数，用于 @auth("jwt") 路由。
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
+from app.core.config import APP_SECRET
+
+security = HTTPBearer()
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """验证 JWT token 并返回 payload。"""
+    try:
+        payload = jwt.decode(
+            credentials.credentials, APP_SECRET, algorithms=["HS256"]
+        )
+        return payload
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        )

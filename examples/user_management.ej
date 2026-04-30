@@ -1,0 +1,157 @@
+// ============================================================
+// EnJin 示例：用户管理系统
+// 本文件展示了 EnJin 四层架构的完整写法。
+// 层级顺序: Model(struct) → Method(fn) → Module(module) → Service(route)
+// ============================================================
+
+// ----------------------------------------------------------
+// [Model 层] 数据模型定义
+// struct 映射到数据库表，纯数据声明，不含任何行为逻辑。
+// ----------------------------------------------------------
+
+@table("users")
+struct User {
+    id: Int @primary @auto_increment
+    username: String @unique @max_length(50)
+    email: String @unique
+    password_hash: String
+    status: Enum("active", "banned", "suspended") @default("active")
+    created_at: DateTime @default("now()")
+}
+
+@table("user_profiles")
+struct UserProfile {
+    id: Int @primary @auto_increment
+    user_id: Int @foreign_key("User.id")
+    bio: Optional<String> @max_length(500)
+    avatar_url: Optional<String>
+}
+
+// ----------------------------------------------------------
+// [Method 层] 原子业务方法
+// fn 是纯粹的业务操作，包含 guard/process/expect 三段意图体。
+// ----------------------------------------------------------
+
+// 用户注册：完整的三段体示例
+@transactional
+fn register_user(username: String, email: String, password: String) -> User {
+    guard {
+        username.length > 0 : "用户名不能为空"
+        username.length < 50 : "用户名过长"
+        email.contains("@") : "邮箱格式不合法"
+        not exists(User, email=email) : "邮箱已被注册"
+        password.length >= 8 : "密码至少 8 位"
+    }
+
+    process {
+        "创建一个新的 User 实例。
+         密码使用 bcrypt 进行哈希加密后存储到 password_hash 字段。
+         status 默认设为 active，将新用户写入数据库并返回。"
+    }
+
+    expect {
+        register_user("alice", "alice@test.com", "password123").username == "alice"
+        register_user("", "a@b.com", "12345678").throws("用户名不能为空")
+        register_user("bob", "existing@test.com", "12345678").throws("邮箱已被注册")
+    }
+}
+
+// 根据 ID 查询用户
+fn get_user_by_id(id: Int) -> User {
+    guard {
+        id > 0 : "用户 ID 必须为正整数"
+    }
+
+    process {
+        "根据传入的 id 从数据库查询 User 记录。
+         如果不存在则抛出 404 NotFound 异常。"
+    }
+
+    expect {
+        get_user_by_id(1).username == "alice"
+        get_user_by_id(99999).throws("NotFound")
+    }
+}
+
+// 更新用户信息
+@transactional
+fn update_user(id: Int, username: String, email: String) -> User {
+    guard {
+        id > 0 : "用户 ID 必须为正整数"
+        username.length > 0 : "用户名不能为空"
+        email.contains("@") : "邮箱格式不合法"
+    }
+
+    process {
+        "根据 id 查找 User 记录，更新其 username 和 email 字段，
+         保存到数据库并返回更新后的 User 对象。"
+    }
+}
+
+// 使用 native 逃生舱的自定义哈希函数
+fn custom_hash(data: String) -> String {
+    native python {
+        import hashlib
+        hashed = hashlib.sha256(data.encode()).hexdigest()
+        return hashed
+    }
+}
+
+// 被 @locked 锁定的函数：编译器跳过 AI，读缓存
+@locked
+fn delete_user(id: Int) -> Bool {
+    guard {
+        id > 0 : "用户 ID 必须为正整数"
+    }
+
+    process {
+        "软删除：将 User 的 status 字段设为 banned，不做物理删除。"
+    }
+}
+
+// ----------------------------------------------------------
+// [Module 层] 模块与调度
+// module 声明作用域依赖、初始化逻辑和后台调度任务。
+// ----------------------------------------------------------
+
+module UserManager {
+    use User
+    use UserProfile
+    use register_user
+    use get_user_by_id
+    use update_user
+    use delete_user
+
+    export register = register_user
+    export detail = get_user_by_id
+    export update = update_user
+    export remove = delete_user
+
+    init {
+        "初始化用户服务的数据库连接池，预热用户缓存。"
+    }
+
+    schedule daily at "02:00" {
+        "清理状态为 banned 且超过 30 天未活动的用户账号，
+         将其数据归档到冷存储。"
+    }
+}
+
+// ----------------------------------------------------------
+// [Service 层] API 网关
+// route 定义 HTTP 接口，映射到 Module 导出的 action。
+// route 只能绑定 module export 的 action，绝对禁止直接绑定裸 fn。
+// ----------------------------------------------------------
+
+@prefix("/api/v1/users")
+@auth("jwt")
+route UserService {
+    use UserManager
+
+    POST "/register"    -> register
+    GET  "/{id}"        -> detail
+    PUT  "/{id}"        -> update
+
+    @locked
+    DELETE "/{id}"      -> remove
+}

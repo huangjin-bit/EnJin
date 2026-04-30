@@ -1,0 +1,482 @@
+package {{ application.name.replace("-", "_") }}.web.controller;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.*;
+import {{ application.name.replace("-", "_") }}.application.service.RiskControlService;
+import {{ application.name.replace("-", "_") }}.application.service.RiskControlService.*;
+import {{ application.name.replace("-", "_") }}.domain.entity.*;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 风控服务API控制器
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api/v1/risk")
+@RequiredArgsConstructor
+public class RiskControlController {
+
+    private final RiskControlService riskControlService;
+
+    // ==================== 用户风控 ====================
+
+    @PostMapping("/evaluate/register")
+    public ApiResponse<RiskDecision> evaluateRegisterRisk(@RequestBody RegisterRiskRequest request) {
+        log.info("评估注册风险: {}", request);
+        RiskDecision decision = riskControlService.evaluateUserRegisterRisk(
+            request.getUsername(),
+            request.getEmail(),
+            request.getPhone(),
+            request.getIpAddress(),
+            request.getDeviceFingerprint()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    @PostMapping("/evaluate/login")
+    public ApiResponse<RiskDecision> evaluateLoginRisk(@RequestBody LoginRiskRequest request) {
+        log.info("评估登录风险: {}", request);
+        RiskDecision decision = riskControlService.evaluateUserLoginRisk(
+            request.getUserId(),
+            request.getIpAddress(),
+            request.getDeviceFingerprint(),
+            request.getLoginStatus()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    // ==================== 订单风控 ====================
+
+    @PostMapping("/evaluate/order")
+    public ApiResponse<RiskDecision> evaluateOrderRisk(@RequestBody OrderRiskRequest request) {
+        log.info("评估订单风险: {}", request);
+        RiskDecision decision = riskControlService.evaluateOrderRisk(
+            request.getUserId(),
+            request.getOrderAmount(),
+            request.getProductCount(),
+            request.getAddressHash(),
+            request.getIpAddress(),
+            request.getDeviceFingerprint()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    @PostMapping("/evaluate/high_value_order")
+    public ApiResponse<RiskDecision> evaluateHighValueOrderRisk(@RequestBody HighValueOrderRequest request) {
+        log.info("评估高价值订单风险: {}", request);
+        RiskDecision decision = riskControlService.evaluateHighValueOrderRisk(
+            request.getOrderId(),
+            request.getUserId(),
+            request.getAmount()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    // ==================== 支付风控 ====================
+
+    @PostMapping("/evaluate/payment")
+    public ApiResponse<RiskDecision> evaluatePaymentRisk(@RequestBody PaymentRiskRequest request) {
+        log.info("评估支付风险: {}", request);
+        RiskDecision decision = riskControlService.evaluatePaymentRisk(
+            request.getUserId(),
+            request.getPaymentAmount(),
+            request.getPaymentMethod(),
+            request.getCardBin(),
+            request.getIpAddress()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    @PostMapping("/detect/stolen_card")
+    public ApiResponse<RiskDecision> detectStolenCard(@RequestBody StolenCardRequest request) {
+        log.info("检测盗卡: {}", request);
+        RiskDecision decision = riskControlService.detectStolenCard(
+            request.getUserId(),
+            request.getCardBin(),
+            request.getCardLast4(),
+            request.getIpAddress()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    // ==================== 优惠券风控 ====================
+
+    @PostMapping("/evaluate/coupon")
+    public ApiResponse<RiskDecision> evaluateCouponClaimRisk(@RequestBody CouponRiskRequest request) {
+        log.info("评估优惠券领取风险: {}", request);
+        RiskDecision decision = riskControlService.evaluateCouponClaimRisk(
+            request.getUserId(),
+            request.getCouponId(),
+            request.getIpAddress(),
+            request.getDeviceFingerprint()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    // ==================== 黑名单管理 ====================
+
+    @PostMapping("/blacklist/check")
+    public ApiResponse<BlacklistResult> checkBlacklist(@RequestBody BlacklistCheckRequest request) {
+        BlacklistResult result = riskControlService.checkBlacklist(
+            request.getBlacklistType(),
+            request.getBlacklistValue()
+        );
+        return ApiResponse.success(result);
+    }
+
+    @PostMapping("/blacklist/add")
+    public ApiResponse<Boolean> addToBlacklist(@RequestBody BlacklistAddRequest request) {
+        boolean success = riskControlService.addToBlacklist(
+            request.getBlacklistType(),
+            request.getBlacklistValue(),
+            request.getReason(),
+            request.getRiskLevel(),
+            request.getExpiresDays(),
+            request.getOperator()
+        );
+        return ApiResponse.success(success);
+    }
+
+    @PostMapping("/blacklist/remove")
+    public ApiResponse<Boolean> removeFromBlacklist(@RequestBody BlacklistRemoveRequest request) {
+        boolean success = riskControlService.removeFromBlacklist(
+            request.getBlacklistType(),
+            request.getBlacklistValue(),
+            request.getOperator()
+        );
+        return ApiResponse.success(success);
+    }
+
+    // ==================== 白名单管理 ====================
+
+    @PostMapping("/whitelist/check")
+    public ApiResponse<WhitelistResult> checkWhitelist(@RequestBody WhitelistCheckRequest request) {
+        WhitelistResult result = riskControlService.checkWhitelist(
+            request.getWhitelistType(),
+            request.getWhitelistValue()
+        );
+        return ApiResponse.success(result);
+    }
+
+    @PostMapping("/whitelist/add")
+    public ApiResponse<Boolean> addToWhitelist(@RequestBody WhitelistAddRequest request) {
+        boolean success = riskControlService.addToWhitelist(
+            request.getWhitelistType(),
+            request.getWhitelistValue(),
+            request.getReason(),
+            request.getExpiresDays(),
+            request.getOperator()
+        );
+        return ApiResponse.success(success);
+    }
+
+    // ==================== 风控档案 ====================
+
+    @GetMapping("/profile/{userId}")
+    public ApiResponse<RiskProfile> getRiskProfile(@PathVariable Long userId) {
+        RiskProfile profile = riskControlService.getRiskProfile(userId);
+        return ApiResponse.success(profile);
+    }
+
+    @PutMapping("/profile/{userId}")
+    public ApiResponse<RiskProfile> updateRiskProfile(
+            @PathVariable Long userId,
+            @RequestBody UpdateProfileRequest request) {
+        RiskProfile profile = riskControlService.updateRiskProfile(
+            userId,
+            request.getRiskLevel(),
+            request.getScoreDelta(),
+            request.getOperationType()
+        );
+        return ApiResponse.success(profile);
+    }
+
+    // ==================== 预警管理 ====================
+
+    @PostMapping("/alert/trigger")
+    public ApiResponse<RiskAlert> triggerRiskAlert(@RequestBody AlertTriggerRequest request) {
+        RiskAlert alert = riskControlService.triggerRiskAlert(
+            request.getAlertLevel(),
+            request.getAlertType(),
+            request.getUserId(),
+            request.getOrderId(),
+            request.getTitle(),
+            request.getContent()
+        );
+        return ApiResponse.success(alert);
+    }
+
+    @GetMapping("/alert/pending")
+    public ApiResponse<List<RiskAlert>> getPendingAlerts(
+            @RequestParam(required = false) String alertType,
+            @RequestParam(defaultValue = "10") Integer limit) {
+        List<RiskAlert> alerts = riskControlService.getPendingAlerts(alertType, limit);
+        return ApiResponse.success(alerts);
+    }
+
+    @PostMapping("/alert/resolve")
+    public ApiResponse<Boolean> resolveAlert(@RequestBody AlertResolveRequest request) {
+        boolean success = riskControlService.resolveAlert(
+            request.getAlertCode(),
+            request.getHandler(),
+            request.getResolution()
+        );
+        return ApiResponse.success(success);
+    }
+
+    // ==================== 设备指纹 ====================
+
+    @PostMapping("/device/register")
+    public ApiResponse<DeviceFingerprint> registerDevice(@RequestBody DeviceRegisterRequest request) {
+        DeviceFingerprint fp = riskControlService.registerDeviceFingerprint(
+            request.getDeviceId(),
+            request.getDeviceType(),
+            request.getBrowser(),
+            request.getOs(),
+            request.getIpAddress()
+        );
+        return ApiResponse.success(fp);
+    }
+
+    @PostMapping("/device/evaluate")
+    public ApiResponse<RiskDecision> evaluateDeviceRisk(@RequestBody DeviceEvaluateRequest request) {
+        RiskDecision decision = riskControlService.evaluateDeviceRisk(
+            request.getDeviceId(),
+            request.getIpAddress()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    // ==================== 规则引擎 ====================
+
+    @PostMapping("/rules/execute")
+    public ApiResponse<List<RuleResult>> executeRules(@RequestBody RulesExecuteRequest request) {
+        List<RuleResult> results = riskControlService.executeRiskRules(
+            request.getEventType(),
+            request.getUserId(),
+            request.getContext()
+        );
+        return ApiResponse.success(results);
+    }
+
+    @PostMapping("/score/calculate")
+    public ApiResponse<Integer> calculateScore(@RequestBody ScoreCalculateRequest request) {
+        Integer score = riskControlService.calculateRiskScore(
+            request.getUserId(),
+            request.getEventType(),
+            request.getRiskFactors()
+        );
+        return ApiResponse.success(score);
+    }
+
+    // ==================== 实时决策 ====================
+
+    @PostMapping("/decision")
+    public ApiResponse<RiskDecision> makeDecision(@RequestBody DecisionRequest request) {
+        RiskDecision decision = riskControlService.makeRiskDecision(
+            request.getEventType(),
+            request.getUserId(),
+            request.getOrderId(),
+            request.getAmount(),
+            request.getIpAddress(),
+            request.getDeviceFingerprint()
+        );
+        return ApiResponse.success(decision);
+    }
+
+    // ==================== 统计报表 ====================
+
+    @GetMapping("/statistics")
+    public ApiResponse<RiskStatistics> getStatistics(
+            @RequestParam String startDate,
+            @RequestParam String endDate) {
+        RiskStatistics stats = riskControlService.getRiskStatistics(startDate, endDate);
+        return ApiResponse.success(stats);
+    }
+
+    @GetMapping("/trend")
+    public ApiResponse<List<RiskTrendItem>> getTrend(@RequestParam(defaultValue = "7") Integer days) {
+        List<RiskTrendItem> trend = riskControlService.getRiskTrend(days);
+        return ApiResponse.success(trend);
+    }
+
+    // ==================== 请求/响应 DTO ====================
+
+    @Data
+    public static class RegisterRiskRequest {
+        private String username;
+        private String email;
+        private String phone;
+        private String ipAddress;
+        private String deviceFingerprint;
+    }
+
+    @Data
+    public static class LoginRiskRequest {
+        private Long userId;
+        private String ipAddress;
+        private String deviceFingerprint;
+        private String loginStatus;
+    }
+
+    @Data
+    public static class OrderRiskRequest {
+        private Long userId;
+        private Double orderAmount;
+        private Integer productCount;
+        private String addressHash;
+        private String ipAddress;
+        private String deviceFingerprint;
+    }
+
+    @Data
+    public static class HighValueOrderRequest {
+        private Long orderId;
+        private Long userId;
+        private Double amount;
+    }
+
+    @Data
+    public static class PaymentRiskRequest {
+        private Long userId;
+        private Double paymentAmount;
+        private String paymentMethod;
+        private String cardBin;
+        private String ipAddress;
+    }
+
+    @Data
+    public static class StolenCardRequest {
+        private Long userId;
+        private String cardBin;
+        private String cardLast4;
+        private String ipAddress;
+    }
+
+    @Data
+    public static class CouponRiskRequest {
+        private Long userId;
+        private Long couponId;
+        private String ipAddress;
+        private String deviceFingerprint;
+    }
+
+    @Data
+    public static class BlacklistCheckRequest {
+        private String blacklistType;
+        private String blacklistValue;
+    }
+
+    @Data
+    public static class BlacklistAddRequest {
+        private String blacklistType;
+        private String blacklistValue;
+        private String reason;
+        private String riskLevel;
+        private Integer expiresDays;
+        private String operator;
+    }
+
+    @Data
+    public static class BlacklistRemoveRequest {
+        private String blacklistType;
+        private String blacklistValue;
+        private String operator;
+    }
+
+    @Data
+    public static class WhitelistCheckRequest {
+        private String whitelistType;
+        private String whitelistValue;
+    }
+
+    @Data
+    public static class WhitelistAddRequest {
+        private String whitelistType;
+        private String whitelistValue;
+        private String reason;
+        private Integer expiresDays;
+        private String operator;
+    }
+
+    @Data
+    public static class UpdateProfileRequest {
+        private String riskLevel;
+        private Integer scoreDelta;
+        private String operationType;
+    }
+
+    @Data
+    public static class AlertTriggerRequest {
+        private String alertLevel;
+        private String alertType;
+        private Long userId;
+        private Long orderId;
+        private String title;
+        private String content;
+    }
+
+    @Data
+    public static class AlertResolveRequest {
+        private String alertCode;
+        private String handler;
+        private String resolution;
+    }
+
+    @Data
+    public static class DeviceRegisterRequest {
+        private String deviceId;
+        private String deviceType;
+        private String browser;
+        private String os;
+        private String ipAddress;
+    }
+
+    @Data
+    public static class DeviceEvaluateRequest {
+        private String deviceId;
+        private String ipAddress;
+    }
+
+    @Data
+    public static class RulesExecuteRequest {
+        private String eventType;
+        private Long userId;
+        private String context;
+    }
+
+    @Data
+    public static class ScoreCalculateRequest {
+        private Long userId;
+        private String eventType;
+        private String riskFactors;
+    }
+
+    @Data
+    public static class DecisionRequest {
+        private String eventType;
+        private Long userId;
+        private Long orderId;
+        private Double amount;
+        private String ipAddress;
+        private String deviceFingerprint;
+    }
+
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class ApiResponse<T> {
+        private int code;
+        private String message;
+        private T data;
+
+        public static <T> ApiResponse<T> success(T data) {
+            return new ApiResponse<>(200, "success", data);
+        }
+
+        public static <T> ApiResponse<T> error(String message) {
+            return new ApiResponse<>(500, message, null);
+        }
+    }
+}

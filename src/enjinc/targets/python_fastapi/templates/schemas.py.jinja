@@ -1,0 +1,79 @@
+# ============================================================
+# schemas.py.jinja - Pydantic Schema 模板
+# ============================================================
+# 每个 struct 生成 Create/Update/Response schema。
+
+from pydantic import BaseModel, ConfigDict
+from typing import Optional, List
+from datetime import datetime
+
+
+{% for struct in structs %}
+{% set sensitive = sensitive_fields | default([]) %}
+
+class {{ struct.name }}Create(BaseModel):
+    """{{ struct.name }} 创建请求。"""
+{% for field in struct.fields %}
+{% set ns = namespace(is_primary=false) %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' %}{% set ns.is_primary = true %}{% endif %}
+{% endfor %}
+{% if not ns.is_primary %}
+{% if field.type.base == 'Int' %}
+    {{ field.name }}: int
+{% elif field.type.base == 'Float' %}
+    {{ field.name }}: float
+{% elif field.type.base == 'Bool' %}
+    {{ field.name }}: bool
+{% elif field.type.base == 'DateTime' %}
+    {{ field.name }}: datetime
+{% else %}
+    {{ field.name }}: str
+{% endif %}
+{% endif %}
+{% endfor %}
+
+
+class {{ struct.name }}Update(BaseModel):
+    """{{ struct.name }} 更新请求。"""
+{% for field in struct.fields %}
+{% set ns2 = namespace(is_primary=false) %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' %}{% set ns2.is_primary = true %}{% endif %}
+{% endfor %}
+{% if not ns2.is_primary %}
+{% if field.type.base == 'Int' %}
+    {{ field.name }}: Optional[int] = None
+{% elif field.type.base == 'Float' %}
+    {{ field.name }}: Optional[float] = None
+{% elif field.type.base == 'Bool' %}
+    {{ field.name }}: Optional[bool] = None
+{% elif field.type.base == 'DateTime' %}
+    {{ field.name }}: Optional[datetime] = None
+{% else %}
+    {{ field.name }}: Optional[str] = None
+{% endif %}
+{% endif %}
+{% endfor %}
+
+
+class {{ struct.name }}Response(BaseModel):
+    """{{ struct.name }} 响应模型。"""
+    model_config = ConfigDict(from_attributes=True)
+{% for field in struct.fields %}
+{% if field.name not in sensitive %}
+{% if field.type.base == 'Int' %}
+    {{ field.name }}: Optional[int] = None
+{% elif field.type.base == 'Float' %}
+    {{ field.name }}: Optional[float] = None
+{% elif field.type.base == 'Bool' %}
+    {{ field.name }}: Optional[bool] = None
+{% elif field.type.base == 'DateTime' %}
+    {{ field.name }}: Optional[datetime] = None
+{% else %}
+    {{ field.name }}: Optional[str] = None
+{% endif %}
+{% endif %}
+{% endfor %}
+
+{% endfor %}

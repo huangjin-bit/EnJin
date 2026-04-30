@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: {{ application.name }}
+{% if use_nacos_config %}
+  cloud:
+    nacos:
+      config:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: DEFAULT_GROUP
+        file-extension: yml
+        shared-configs:
+          - data-id: common.yml
+            group: DEFAULT_GROUP
+            refresh: true
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+{% elif service_discovery == "nacos" %}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+{% elif service_discovery == "eureka" %}
+  cloud:
+    eureka:
+      client:
+        service-url:
+          defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+{% endif %}

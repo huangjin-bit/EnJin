@@ -1,0 +1,124 @@
+// ============================================================
+// 电商微服务示例 — 订单服务 (order-service)
+// 演示 Spring Cloud 微服务架构下的 .ej 意图定义
+// ============================================================
+
+application {
+  name: "order-service"
+  target: "java_springboot"
+  version: "1.0.0"
+
+  config {
+    layout {
+      java_use_spring_cloud: "true"
+      java_service_discovery: "nacos"
+      java_use_gateway: "true"
+      java_use_feign: "true"
+      java_use_sentinel: "true"
+      java_use_seata: "true"
+      java_use_nacos_config: "true"
+      java_use_tracing: "true"
+      java_use_docker: "true"
+      java_use_k8s: "true"
+    }
+  }
+
+  database {
+    engine: "postgresql"
+    host: "localhost"
+    port: 5432
+    name: "order_db"
+  }
+
+  queue {
+    engine: "kafka"
+    host: "localhost"
+    port: 9092
+  }
+}
+
+// ============================================================
+// 数据模型
+// ============================================================
+
+@table("orders")
+struct Order {
+  id: Int @primary
+  userId: Int @foreign_key
+  orderNo: String @unique @max_length(64)
+  totalAmount: Float
+  status: String @max_length(32)
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+@table("order_items")
+struct OrderItem {
+  id: Int @primary
+  orderId: Int @foreign_key
+  productId: Int @foreign_key
+  quantity: Int
+  unitPrice: Float
+}
+
+@table("payments")
+struct Payment {
+  id: Int @primary
+  orderId: Int @foreign_key
+  amount: Float
+  method: String @max_length(32)
+  status: String @max_length(32)
+  paidAt: DateTime
+}
+
+// ============================================================
+// 业务逻辑
+// ============================================================
+
+fn create_order(userId: Int) -> Order {
+  guard {
+    quantity > 0 : "数量必须大于0"
+    stock_available : "库存不足"
+  }
+  process {
+    "根据 userId 创建订单，计算总金额，校验库存充足后保存订单和订单明细"
+  }
+}
+
+fn query_order(orderId: Int) -> Order {
+  process {
+    "根据 orderId 查询订单详情，包含订单明细列表"
+  }
+}
+
+fn cancel_order(orderId: Int) -> Bool {
+  guard {
+    status == "PENDING" : "只能取消待处理订单"
+  }
+  process {
+    "取消订单，恢复库存，退款（如已支付）"
+  }
+}
+
+fn process_payment(orderId: Int, method: String) -> Payment {
+  guard {
+    order_exists : "订单不存在"
+    not_paid : "订单已支付"
+  }
+  process {
+    "处理订单支付，创建支付记录，更新订单状态为已支付"
+  }
+}
+
+// ============================================================
+// 路由服务
+// ============================================================
+
+@prefix("/api/orders")
+route OrderService {
+
+  POST "/"                  -> create_order
+  GET "/{id}"               -> query_order
+  PUT "/{id}/cancel"        -> cancel_order
+  POST "/{id}/payment"      -> process_payment
+}

@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}
+  labels:
+    app: {{ app_name }}
+    version: {{ version }}
+spec:
+  replicas: {{ replicas }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        version: {{ version }}
+    spec:
+      containers:
+        - name: {{ app_name }}
+          image: {{ image_repo }}/{{ app_name }}:{{ version }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "k8s"
+            - name: DB_HOST
+              value: "{{ db_service }}"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-db-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-db-secret
+                  key: password
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "{{ kafka_service }}:9092"
+{% if use_nacos_config or service_discovery == "nacos" %}
+            - name: NACOS_ADDR
+              value: "{{ nacos_service }}:8848"
+{% endif %}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}
+  labels:
+    app: {{ app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: {{ app_name }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-db-secret
+type: Opaque
+stringData:
+  username: ${DB_USERNAME}
+  password: ${DB_PASSWORD}

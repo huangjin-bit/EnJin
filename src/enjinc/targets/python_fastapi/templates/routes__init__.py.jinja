@@ -1,0 +1,28 @@
+# ============================================================
+# api/{{ api_version }}/__init__.py - 路由模块初始化
+# ============================================================
+# 动态导入所有路由模块，注册到 FastAPI 应用。
+
+import importlib
+from pathlib import Path
+from fastapi import FastAPI
+
+
+def register_all_routes(app: FastAPI):
+    """动态注册所有路由模块。"""
+    routes_path = Path(__file__).parent
+
+    for route_file in routes_path.glob("*.py"):
+        if route_file.name.startswith("_"):
+            continue
+
+        module_name = f"app.api.{{ api_version }}.{route_file.stem}"
+        try:
+            route_module = importlib.import_module(module_name)
+            router = getattr(route_module, "router", None)
+            if router:
+                prefix = getattr(route_module, "PREFIX", "")
+                app.include_router(router, prefix=prefix)
+                print(f"Registered route: {module_name} with prefix: {prefix}")
+        except ImportError as e:
+            print(f"Failed to import route module {module_name}: {e}")

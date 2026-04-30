@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enjinc-go-gin"
+version = "0.1.0"
+description = "Go Gin Web Framework target for EnJin Compiler"
+requires-python = ">=3.11"
+dependencies = [
+    "enjinc>=0.1.0",
+]
+
+[project.entry-points."enjinc.targets"]
+go_gin = "go_gin.renderer"
+
+[tool.setuptools.packages.find]
+where = ["src"]

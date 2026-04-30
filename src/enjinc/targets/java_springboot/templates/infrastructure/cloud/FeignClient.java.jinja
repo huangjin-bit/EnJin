@@ -1,0 +1,33 @@
+package {{ pkg }}.infrastructure.client;
+
+import {{ pkg }}.interface.dto.response.{{ struct.name }}Response;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * {{ struct.name }} Feign 客户端 — 供其他微服务调用。
+ */
+@FeignClient(
+    name = "${{ '{' }}{{ service_name }}.feign.name:{{ struct.name | lower }}-service{{ '}' }}",
+    url = "${{ '{' }}{{ service_name }}.feign.url:{{ '}' }}",
+    fallbackFactory = {{ struct.name }}ClientFallback.class
+)
+public interface {{ struct.name }}Client {
+
+    @GetMapping("/api/{{ struct.name | lower }}/{id}")
+    {{ struct.name }}Response getById(@PathVariable("id") Long id);
+
+    @GetMapping("/api/{{ struct.name | lower }}")
+    List<{{ struct.name }}Response> listAll();
+
+    @PostMapping("/api/{{ struct.name | lower }}")
+    {{ struct.name }}Response create(@RequestBody {{ struct.name }}Response request);
+
+    @PutMapping("/api/{{ struct.name | lower }}/{id}")
+    {{ struct.name }}Response update(@PathVariable("id") Long id, @RequestBody {{ struct.name }}Response request);
+
+    @DeleteMapping("/api/{{ struct.name | lower }}/{id}")
+    void delete(@PathVariable("id") Long id);
+}

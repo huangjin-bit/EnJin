@@ -1,0 +1,79 @@
+package {{ application.name | replace("-", "_") }}.infrastructure.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import java.util.Optional;
+
+{% for entity in risk_entities %}
+/**
+ * {{ entity.name }} Mapper
+ */
+@Mapper
+public interface {{ entity.name }}Mapper extends BaseMapper<{{ entity.name }}> {
+
+    default Optional<{{ entity.name }}> findById(@Param("id") Long id) {
+        return Optional.ofNullable(selectById(id));
+    }
+}
+{% endfor %}
+
+{% if has_risk_blacklist %}
+// RiskBlacklist 专用查询方法
+@Mapper
+interface RiskBlacklistMapper extends BaseMapper<RiskBlacklist> {
+    RiskBlacklist selectByTypeAndValue(@Param("blacklistType") String blacklistType, @Param("blacklistValue") String blacklistValue);
+    int deleteByTypeAndValue(@Param("blacklistType") String blacklistType, @Param("blacklistValue") String blacklistValue);
+}
+{% endif %}
+
+{% if has_risk_whitelist %}
+// RiskWhitelist 专用查询方法
+@Mapper
+interface RiskWhitelistMapper extends BaseMapper<RiskWhitelist> {
+    RiskWhitelist selectByTypeAndValue(@Param("whitelistType") String whitelistType, @Param("whitelistValue") String whitelistValue);
+}
+{% endif %}
+
+{% if has_risk_alert %}
+// RiskAlert 专用查询方法
+@Mapper
+interface RiskAlertMapper extends BaseMapper<RiskAlert> {
+    RiskAlert selectByAlertCode(@Param("alertCode") String alertCode);
+    java.util.List<RiskAlert> selectPendingByType(@Param("alertType") String alertType, @Param("limit") Integer limit);
+}
+{% endif %}
+
+{% if has_device_fingerprint %}
+// DeviceFingerprint 专用查询方法
+@Mapper
+interface DeviceFingerprintMapper extends BaseMapper<DeviceFingerprint> {
+    DeviceFingerprint selectByDeviceId(@Param("deviceId") String deviceId);
+}
+{% endif %}
+
+{% if has_risk_rule %}
+// RiskRule 专用查询方法
+@Mapper
+interface RiskRuleMapper extends BaseMapper<RiskRule> {
+    java.util.List<RiskRule> selectByEventType(@Param("eventType") String eventType);
+    java.util.List<RiskRule> selectEnabled();
+}
+{% endif %}
+
+{% if has_risk_event %}
+// RiskEvent 专用查询方法
+@Mapper
+interface RiskEventMapper extends BaseMapper<RiskEvent> {
+    RiskEvent selectByEventId(@Param("eventId") String eventId);
+    java.util.List<RiskEvent> selectByUserId(@Param("userId") Long userId, @Param("limit") Integer limit);
+}
+{% endif %}
+
+{% if has_risk_profile %}
+// RiskProfile 专用查询方法
+@Mapper
+interface RiskProfileMapper extends BaseMapper<RiskProfile> {
+    RiskProfile selectByUserId(@Param("userId") Long userId);
+}
+{% endif %}

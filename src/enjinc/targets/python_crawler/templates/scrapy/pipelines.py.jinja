@@ -1,0 +1,86 @@
+# ============================================================
+# scrapy/pipelines.py.jinja - Scrapy Pipelines
+# ============================================================
+
+import scrapy
+
+{% set st = application.get("storage", {}) %}
+{% if st.type | default('mongodb') == 'mongodb' %}
+from pymongo import MongoClient
+import config
+
+class MongoDBPipeline:
+    def __init__(self):
+        self.client = None
+        self.db = None
+        self.collection = None
+
+    def open_spider(self, spider):
+        self.client = MongoClient(config.MONGODB_URI)
+        self.db = self.client[config.MONGODB_DATABASE]
+        self.collection = self.db[config.MONGODB_COLLECTION]
+
+    def close_spider(self, spider):
+        if self.client:
+            self.client.close()
+
+    def process_item(self, item, spider):
+        self.collection.insert_one(dict(item))
+        return item
+
+{% elif st.type | default('mongodb') == 'mysql' %}
+import pymysql
+import config
+
+class MySQLPipeline:
+    def __init__(self):
+        self.connection = None
+
+    def open_spider(self, spider):
+        self.connection = pymysql.connect(
+            host=config.MYSQL_HOST,
+            port=config.MYSQL_PORT,
+            user=config.MYSQL_USER,
+            password=config.MYSQL_PASSWORD,
+            database=config.MYSQL_DATABASE,
+            charset="utf8mb4",
+        )
+
+    def close_spider(self, spider):
+        if self.connection:
+            self.connection.close()
+
+    def process_item(self, item, spider):
+        with self.connection.cursor() as cursor:
+            sql = "INSERT INTO items (data) VALUES (%s)"
+            cursor.execute(sql, (str(item),))
+        self.connection.commit()
+        return item
+
+{% else %}
+class DummyPipeline:
+    def process_item(self, item, spider):
+        return item
+
+{% endif %}
+
+class DuplicatesPipeline:
+    def __init__(self):
+        self.urls_seen = set()
+
+    def open_spider(self, spider):
+        self.urls_seen = set()
+
+    def process_item(self, item, spider):
+        url = item.get("url")
+        if url and url in self.urls_seen:
+            raise scrapy.exceptions.DropItem(f"Duplicate item found: {url}")
+        self.urls_seen.add(url)
+        return item
+
+
+class ValidationPipeline:
+    def process_item(self, item, spider):
+        if not item:
+            raise scrapy.exceptions.DropItem("Empty item")
+        return item

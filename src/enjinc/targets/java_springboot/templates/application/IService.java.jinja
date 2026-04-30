@@ -1,0 +1,21 @@
+package {{ pkg }}.application.service;
+
+import {{ pkg }}.domain.entity.{{ struct.name }};
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * {{ struct.name }} Service Interface
+ */
+public interface I{{ struct.name }}Service {
+
+    Optional<{{ struct.name }}> findById(Long id);
+
+    List<{{ struct.name }}> findAll();
+
+    {{ struct.name }} create({{ struct.name }} entity);
+
+    Optional<{{ struct.name }}> update(Long id, {{ struct.name }} entity);
+
+    boolean delete(Long id);
+}

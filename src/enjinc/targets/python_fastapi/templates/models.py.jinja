@@ -1,0 +1,46 @@
+# ============================================================
+# models.py.jinja - ORM 模型模板
+# ============================================================
+
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum as SQLEnum, ForeignKey, func, Text
+from sqlalchemy.ext.declarative import declarative_base
+
+from app.core.database import Base
+
+
+# ============================================================
+# ORM 模型定义
+# ============================================================
+{% for struct in structs %}
+
+class {{ struct.name }}(Base):
+    """{{ struct.name }} model."""
+    __tablename__ = "{{ struct.annotations[0].args[0] if struct.annotations and struct.annotations[0].name == 'table' else struct.name.lower() + 's' }}"
+{% for field in struct.fields %}
+{% set type_parts = [] %}
+{% if field.type.base == "Int" %}{{ type_parts.append("Integer") or "" }}{% elif field.type.base == "Float" %}{{ type_parts.append("Float") or "" }}{% elif field.type.base == "Bool" %}{{ type_parts.append("Boolean") or "" }}{% elif field.type.base == "DateTime" %}{{ type_parts.append("DateTime") or "" }}{% elif field.type.base == "Enum" %}{{ type_parts.append('SQLEnum("' + (field.type.params | join('", "')) + '")') or "" }}{% elif field.type.base == "String" %}{{ type_parts.append("String") or "" }}{% else %}{{ type_parts.append("String") or "" }}{% endif %}
+{% set col_type = type_parts[0] if type_parts else "String" %}
+{% set ml = None %}
+{% for anno in field.annotations %}
+{% if anno.name == "max_length" %}{% set ml = anno.args[0] if anno.args else "255" %}{% endif %}
+{% endfor %}
+{% if ml and col_type == "String" %}{% set col_type = "String(" ~ ml ~ ")" %}{% endif %}
+{% set kwargs = [] %}
+{% for anno in field.annotations %}
+{% if anno.name == "primary" %}{{ kwargs.append("primary_key=True") or "" }}{% elif anno.name == "unique" %}{{ kwargs.append("unique=True") or "" }}{% elif anno.name == "default" %}{% if anno.args[0] == 'now()' %}{{ kwargs.append("server_default=func.now()") or "" }}{% else %}{{ kwargs.append('default="' ~ anno.args[0] ~ '"') or "" }}{% endif %}{% endif %}
+{% endfor %}
+{% if field.type.is_optional %}{{ kwargs.append("nullable=True") or "" }}{% else %}{{ kwargs.append("nullable=False") or "" }}{% endif %}
+{% set fk_ref = none %}
+{% for anno in field.annotations %}
+{% if anno.name == "foreign_key" and anno.args %}{% set fk_ref = anno.args[0] %}{% endif %}
+{% endfor %}
+{% if fk_ref %}
+{% set fk_parts = fk_ref.split(".") %}
+{% set fk_table = fk_parts[0].lower() + "s" %}
+{% set fk_col = fk_parts[1] if fk_parts | length > 1 else "id" %}
+    {{ field.name }} = Column({{ col_type }}, ForeignKey("{{ fk_table }}.{{ fk_col }}"), {{ kwargs | join(", ") }})
+{% else %}
+    {{ field.name }} = Column({{ col_type }}, {{ kwargs | join(", ") }})
+{% endif %}
+{% endfor %}
+{% endfor %}

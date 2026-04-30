@@ -1,0 +1,114 @@
+// ============================================================
+// 淘宝首页爬虫 (taobao_homepage.ej)
+// 目标：抓取淘宝首页 HTML，提取商品分类和推荐信息
+// ============================================================
+
+application {
+    name: "taobao-crawler"
+    version: "1.0.0"
+    target: "python_crawler"
+
+    request_config {
+        timeout: 15
+        max_retries: 3
+        retry_delay: 2
+    }
+
+    proxy_config {
+        enabled: "false"
+        pool_size: 5
+        min_score: 60
+        check_interval: 300
+    }
+
+    rate_limit {
+        enabled: "false"
+        requests_per_second: 1
+        burst: 3
+    }
+
+    concurrency {
+        max_concurrent_requests: 3
+        max_concurrent_per_domain: 1
+    }
+
+    storage {
+        type: "mongodb"
+        database: "taobao_db"
+        collection: "homepage_items"
+    }
+
+    playwright_config {
+        headless: "true"
+        viewport_width: 1920
+        viewport_height: 1080
+        browser_type: "chromium"
+        loading_timeout: 30
+        action_timeout: 10
+    }
+
+    start_url_1: "https://www.taobao.com"
+    allowed_domain: "taobao.com"
+}
+
+// 首页商品分类
+struct Category {
+    id: Int @primary @auto_increment
+    name: String @max_length(100)
+    url: String @max_length(500)
+    level: Int @default(1)
+    parent_id: Optional<Int>
+}
+
+// 首页推荐商品
+struct RecommendedItem {
+    id: Int @primary @auto_increment
+    title: String @max_length(200)
+    price: String @max_length(50)
+    image_url: String @max_length(500)
+    detail_url: String @max_length(500)
+    shop_name: String @max_length(100)
+    category: String @max_length(100)
+}
+
+// 抓取淘宝首页 HTML
+fn crawl_taobao_homepage(url: String) -> String {
+    guard {
+        url != "" : "URL 不能为空"
+    }
+    process { "使用 httpx 异步请求淘宝首页，返回完整 HTML 内容" }
+    expect {
+        crawl_taobao_homepage("https://www.taobao.com").status_code == 200
+    }
+}
+
+// 从 HTML 提取分类列表
+fn extract_categories(html: String) -> List<Category> {
+    process { "使用 BeautifulSoup 解析淘宝首页 HTML，提取导航栏中的商品分类名称和链接" }
+}
+
+// 从 HTML 提取推荐商品
+fn extract_recommended_items(html: String) -> List<RecommendedItem> {
+    process { "使用 BeautifulSoup 解析淘宝首页 HTML，提取推荐区域的商品标题、价格、图片和链接" }
+}
+
+module TaobaoCrawler {
+    use crawl_taobao_homepage
+    use extract_categories
+    use extract_recommended_items
+
+    export crawl = crawl_taobao_homepage
+    export categories = extract_categories
+    export items = extract_recommended_items
+
+    init { "初始化淘宝爬虫，加载配置并预热连接" }
+
+    schedule daily at "08:00" { "每天早上8点定时抓取淘宝首页" }
+}
+
+route TaobaoCrawlService {
+    use TaobaoCrawler
+    GET "/crawl/taobao" -> crawl
+    GET "/crawl/taobao/categories" -> categories
+    GET "/crawl/taobao/items" -> items
+}

@@ -1,0 +1,58 @@
+# ============================================================
+# config.py.jinja - 爬虫配置文件
+# ============================================================
+
+import os
+from typing import List
+
+CRAWLER_NAME = "{{ application.name | default('crawler') }}"
+CRAWLER_VERSION = "{{ application.version | default('0.1.0') }}"
+
+{% set rc = application.get("request_config", {}) %}
+REQUEST_TIMEOUT = {{ rc.timeout | default(30) }}
+MAX_RETRIES = {{ rc.max_retries | default(3) }}
+RETRY_DELAY = {{ rc.retry_delay | default(1) }}
+
+{% set pc = application.get("proxy_config", {}) %}
+PROXY_POOL_ENABLED = {{ pc.enabled | default("false") == "true" }}
+PROXY_POOL_SIZE = {{ pc.pool_size | default(10) }}
+PROXY_MIN_SCORE = {{ pc.min_score | default(60) }}
+PROXY_CHECK_INTERVAL = {{ pc.check_interval | default(300) }}
+
+{% set rl = application.get("rate_limit", {}) %}
+RATE_LIMIT_ENABLED = {{ rl.enabled | default("false") == "true" }}
+RATE_LIMIT_REQUESTS_PER_SECOND = {{ rl.requests_per_second | default(10) }}
+RATE_LIMIT_BURST = {{ rl.burst | default(20) }}
+
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
+START_URLS = [
+{% for i in range(1, 10) %}
+{% if application.get("start_url_" ~ i) %}
+    "{{ application['start_url_' ~ i] }}",
+{% endif %}
+{% endfor %}
+]
+ALLOWED_DOMAINS = ["{{ application.allowed_domain | default('') }}"]
+
+{% set st = application.get("storage", {}) %}
+STORAGE_TYPE = "{{ st.type | default('mongodb') }}"
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "{{ st.database | default('crawler_db') }}")
+MONGODB_COLLECTION = os.getenv("MONGODB_COLLECTION", "{{ st.collection | default('items') }}")
+
+{% set cc = application.get("concurrency", {}) %}
+MAX_CONCURRENT_REQUESTS = {{ cc.max_concurrent_requests | default(5) }}
+MAX_CONCURRENT_PER_DOMAIN = {{ cc.max_concurrent_per_domain | default(2) }}
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE = os.getenv("LOG_FILE", "crawler.log")

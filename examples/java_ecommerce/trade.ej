@@ -1,0 +1,906 @@
+// ============================================================
+// EnJin 示例：Java 分布式电商系统
+// 本文件展示 EnJin 四层架构在 Java Spring Boot 的完整写法。
+// 层级顺序: Model(struct) → Method(fn) → Module(module) → Service(route)
+// ============================================================
+
+application {
+    name: "trade-core"
+    version: "1.0.0"
+    target: "java_springboot"
+
+    database {
+        driver: "postgresql"
+        host: env("DB_HOST")
+        port: 5432
+        name: "trade_db"
+    }
+
+    queue {
+        primary: "kafka"
+        secondary: "rocketmq"
+        default_delivery: "at_least_once"
+    }
+
+    workflow {
+        engine: "temporal"
+    }
+
+    ai {
+        provider: "openai"
+        model: "gpt-4"
+        max_tokens_per_call: 2000
+        cache_strategy: "ast_hash"
+    }
+}
+
+// ----------------------------------------------------------
+// [Model 层] 数据模型定义
+// ----------------------------------------------------------
+
+@table("users")
+struct User {
+    id: Int @primary @auto_increment
+    username: String @unique @max_length(50)
+    email: String @unique
+    password_hash: String
+    phone: Optional<String>
+    status: Enum("active", "banned", "suspended") @default("active")
+    created_at: DateTime @default("now()")
+}
+
+@table("user_addresses")
+struct UserAddress {
+    id: Int @primary @auto_increment
+    user_id: Int @foreign_key("User.id")
+    receiver_name: String
+    phone: String
+    province: String
+    city: String
+    district: String
+    detail_address: String
+    is_default: Bool @default("false")
+    created_at: DateTime @default("now()")
+}
+
+@table("categories")
+struct Category {
+    id: Int @primary @auto_increment
+    name: String @max_length(100)
+    parent_id: Optional<Int>
+    level: Int @default(1)
+    sort_order: Int @default(0)
+    status: Enum("enabled", "disabled") @default("enabled")
+    created_at: DateTime @default("now()")
+}
+
+@table("products")
+struct Product {
+    id: Int @primary @auto_increment
+    category_id: Int @foreign_key("Category.id")
+    name: String @max_length(200)
+    description: Optional<String>
+    price: Float
+    original_price: Float
+    stock: Int @default(0)
+    sold_count: Int @default(0)
+    category: String
+    status: Enum("on_sale", "off_sale", "deleted") @default("on_sale")
+    created_at: DateTime @default("now()")
+}
+
+@table("product_skus")
+struct ProductSku {
+    id: Int @primary @auto_increment
+    product_id: Int @foreign_key("Product.id")
+    sku_code: String @unique
+    specs: String
+    price: Float
+    stock: Int @default(0)
+    status: Enum("available", "unavailable") @default("available")
+    created_at: DateTime @default("now()")
+}
+
+@table("carts")
+struct Cart {
+    id: Int @primary @auto_increment
+    user_id: Int @foreign_key("User.id")
+    product_id: Int @foreign_key("Product.id")
+    sku_id: Optional<Int> @foreign_key("ProductSku.id")
+    quantity: Int @default(1)
+    selected: Bool @default("true")
+    created_at: DateTime @default("now()")
+}
+
+@table("orders")
+struct Order {
+    id: Int @primary @auto_increment
+    user_id: Int @foreign_key("User.id")
+    order_no: String @unique
+    total_amount: Float
+    discount_amount: Float @default(0)
+    freight_amount: Float @default(0)
+    actual_amount: Float
+    address_id: Int @foreign_key("UserAddress.id")
+    status: Enum("pending", "paid", "shipped", "delivered", "cancelled", "refunded") @default("pending")
+    created_at: DateTime @default("now()")
+    paid_at: Optional<DateTime>
+    shipped_at: Optional<DateTime>
+    delivered_at: Optional<DateTime>
+}
+
+@table("order_items")
+struct OrderItem {
+    id: Int @primary @auto_increment
+    order_id: Int @foreign_key("Order.id")
+    product_id: Int @foreign_key("Product.id")
+    sku_id: Optional<Int> @foreign_key("ProductSku.id")
+    product_name: String
+    sku_specs: Optional<String>
+    unit_price: Float
+    quantity: Int
+    subtotal: Float
+    created_at: DateTime @default("now()")
+}
+
+@table("payments")
+struct Payment {
+    id: Int @primary @auto_increment
+    order_id: Int @foreign_key("Order.id")
+    payment_no: String @unique
+    amount: Float
+    method: Enum("alipay", "wechat", "bank_card") @default("alipay")
+    status: Enum("pending", "success", "failed", "refunded") @default("pending")
+    transaction_no: Optional<String>
+    paid_at: Optional<DateTime>
+    created_at: DateTime @default("now()")
+}
+
+@table("logistics")
+struct Logistics {
+    id: Int @primary @auto_increment
+    order_id: Int @foreign_key("Order.id")
+    tracking_no: String @unique
+    carrier: String
+    status: Enum("pending", "in_transit", "delivered", "returned") @default("pending")
+    shipped_at: Optional<DateTime>
+    delivered_at: Optional<DateTime>
+    created_at: DateTime @default("now()")
+}
+
+@table("refunds")
+struct Refund {
+    id: Int @primary @auto_increment
+    order_id: Int @foreign_key("Order.id")
+    refund_no: String @unique
+    amount: Float
+    reason: String
+    status: Enum("pending", "approved", "rejected", "refunded") @default("pending")
+    processed_at: Optional<DateTime>
+    created_at: DateTime @default("now()")
+}
+
+@table("product_reviews")
+struct ProductReview {
+    id: Int @primary @auto_increment
+    order_id: Int @foreign_key("Order.id")
+    product_id: Int @foreign_key("Product.id")
+    user_id: Int @foreign_key("User.id")
+    rating: Int
+    content: Optional<String>
+    images: Optional<String>
+    reply: Optional<String>
+    created_at: DateTime @default("now()")
+}
+
+@table("coupons")
+struct Coupon {
+    id: Int @primary @auto_increment
+    name: String
+    code: String @unique
+    type: Enum("fixed", "percentage") @default("fixed")
+    value: Float
+    min_amount: Float @default(0)
+    max_discount: Float
+    total_count: Int
+    remain_count: Int
+    start_time: DateTime
+    end_time: DateTime
+    status: Enum("active", "inactive", "expired") @default("active")
+    created_at: DateTime @default("now()")
+}
+
+@table("user_coupons")
+struct UserCoupon {
+    id: Int @primary @auto_increment
+    user_id: Int @foreign_key("User.id")
+    coupon_id: Int @foreign_key("Coupon.id")
+    used: Bool @default("false")
+    used_at: Optional<DateTime>
+    order_id: Optional<Int> @foreign_key("Order.id")
+    created_at: DateTime @default("now()")
+}
+
+@table("search_history")
+struct SearchHistory {
+    id: Int @primary @auto_increment
+    user_id: Int @foreign_key("User.id")
+    keyword: String
+    result_count: Int
+    created_at: DateTime @default("now()")
+}
+
+// ----------------------------------------------------------
+// [Method 层] 原子业务方法
+// ----------------------------------------------------------
+
+// ---------- 用户模块 ----------
+
+fn register_user(username: String, email: String, password: String) -> User {
+    guard {
+        username.length > 0 : "用户名不能为空"
+        email.contains("@") : "邮箱格式不合法"
+        password.length >= 8 : "密码至少8位"
+        not exists(User, email=email) : "邮箱已被注册"
+    }
+
+    process {
+        "注册用户"
+    }
+}
+
+fn login_user(username: String, password: String) -> User {
+    guard {
+        username.length > 0 : "用户名不能为空"
+        password.length > 0 : "密码不能为空"
+    }
+
+    process {
+        "用户登录"
+    }
+}
+
+fn get_user_info(user_id: Int) -> User {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "获取用户信息"
+    }
+}
+
+fn update_user_profile(user_id: Int, phone: String) -> User {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "更新用户资料"
+    }
+}
+
+// ---------- 商品模块 ----------
+
+fn get_product_by_id(id: Int) -> Product {
+    guard {
+        id > 0 : "商品ID必须为正整数"
+    }
+
+    process {
+        "获取商品详情"
+    }
+}
+
+fn get_category_products(category_id: Int, page: Int, page_size: Int) -> List<Product> {
+    guard {
+        category_id > 0 : "分类ID无效"
+        page > 0 : "页码必须大于0"
+        page_size > 0 : "每页数量必须大于0"
+    }
+
+    process {
+        "获取分类商品列表"
+    }
+}
+
+fn get_hot_products(limit: Int) -> List<Product> {
+    guard {
+        limit > 0 : "数量必须大于0"
+        limit <= 50 : "数量不能超过50"
+    }
+
+    process {
+        "获取热门商品"
+    }
+}
+
+fn update_product_stock(product_id: Int, quantity: Int) -> Bool {
+    guard {
+        product_id > 0 : "商品ID无效"
+    }
+
+    process {
+        "更新商品库存"
+    }
+}
+
+// ---------- 搜索模块 (ES/全文搜索) ----------
+
+fn search_products(keyword: String, category: String, brand: String, min_price: Float, max_price: Float, sort_by: String, page: Int, page_size: Int) -> SearchResult {
+    guard {
+        keyword.length > 0 : "搜索关键词不能为空"
+        page > 0 : "页码必须大于0"
+        page_size > 0 : "每页数量必须大于0"
+        page_size <= 100 : "每页数量不能超过100"
+    }
+
+    process {
+        "全文搜索商品，支持关键词、分类、品牌、价格区间、排序"
+    }
+}
+
+fn search_suggest(keyword: String, limit: Int) -> List<String> {
+    guard {
+        keyword.length >= 2 : "搜索词至少2个字符"
+        limit > 0 : "数量必须大于0"
+    }
+
+    process {
+        "搜索联想词"
+    }
+}
+
+fn get_popular_searches(limit: Int) -> List<SearchHistory> {
+    guard {
+        limit > 0 : "数量必须大于0"
+    }
+
+    process {
+        "获取热门搜索词"
+    }
+}
+
+fn save_search_history(user_id: Int, keyword: String) -> SearchHistory {
+    guard {
+        user_id > 0 : "用户ID无效"
+        keyword.length > 0 : "关键词不能为空"
+    }
+
+    process {
+        "保存用户搜索历史"
+    }
+}
+
+// ---------- 购物车模块 ----------
+
+fn add_to_cart(user_id: Int, product_id: Int, sku_id: Int, quantity: Int) -> Cart {
+    guard {
+        user_id > 0 : "用户ID无效"
+        product_id > 0 : "商品ID无效"
+        quantity > 0 : "数量必须大于0"
+    }
+
+    process {
+        "添加商品到购物车"
+    }
+}
+
+fn get_cart_items(user_id: Int) -> List<Cart> {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "获取用户购物车商品列表"
+    }
+}
+
+fn update_cart_item(cart_id: Int, quantity: Int) -> Cart {
+    guard {
+        cart_id > 0 : "购物车ID无效"
+        quantity > 0 : "数量必须大于0"
+    }
+
+    process {
+        "更新购物车商品数量"
+    }
+}
+
+fn remove_from_cart(cart_id: Int) -> Bool {
+    guard {
+        cart_id > 0 : "购物车ID无效"
+    }
+
+    process {
+        "从购物车移除商品"
+    }
+}
+
+fn clear_cart(user_id: Int) -> Bool {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "清空用户购物车"
+    }
+}
+
+// ---------- 订单模块 ----------
+
+@transactional
+fn create_order(user_id: Int, address_id: Int, items: List<OrderItem>, coupon_id: Int, remark: String) -> Order {
+    guard {
+        user_id > 0 : "用户ID无效"
+        address_id > 0 : "地址ID无效"
+        items.length > 0 : "订单商品不能为空"
+    }
+
+    process {
+        "创建订单"
+    }
+
+    expect {
+        create_order(1, 1, [], null, "").throws("订单商品不能为空")
+    }
+}
+
+fn get_order_by_id(order_id: Int) -> Order {
+    guard {
+        order_id > 0 : "订单ID无效"
+    }
+
+    process {
+        "获取订单详情"
+    }
+}
+
+fn get_user_orders(user_id: Int, status: String, page: Int, page_size: Int) -> List<Order> {
+    guard {
+        user_id > 0 : "用户ID无效"
+        page > 0 : "页码必须大于0"
+    }
+
+    process {
+        "获取用户订单列表"
+    }
+}
+
+@locked
+fn cancel_order(order_id: Int, user_id: Int) -> Bool {
+    guard {
+        order_id > 0 : "订单ID无效"
+        user_id > 0 : "用户ID无效"
+        exists(Order, id=order_id, status="pending") : "只能取消待支付订单"
+    }
+
+    process {
+        "取消订单"
+    }
+}
+
+@transactional
+fn pay_order(order_id: Int, method: String, transaction_no: String) -> Payment {
+    guard {
+        order_id > 0 : "订单ID无效"
+        method.length > 0 : "支付方式不能为空"
+        exists(Order, id=order_id, status="pending") : "订单不存在或状态异常"
+    }
+
+    process {
+        "支付订单"
+    }
+}
+
+@transactional
+fn ship_order(order_id: Int, tracking_no: String, carrier: String) -> Logistics {
+    guard {
+        order_id > 0 : "订单ID无效"
+        tracking_no.length > 0 : "物流单号不能为空"
+        carrier.length > 0 : "快递公司不能为空"
+        exists(Order, id=order_id, status="paid") : "订单状态必须为已支付"
+    }
+
+    process {
+        "发货"
+    }
+}
+
+@transactional
+fn confirm_delivery(order_id: Int) -> Bool {
+    guard {
+        order_id > 0 : "订单ID无效"
+        exists(Order, id=order_id, status="shipped") : "订单状态必须为已发货"
+    }
+
+    process {
+        "确认收货"
+    }
+}
+
+// ---------- 退款模块 ----------
+
+@transactional
+fn apply_refund(order_id: Int, reason: String) -> Refund {
+    guard {
+        order_id > 0 : "订单ID无效"
+        reason.length > 0 : "退款原因不能为空"
+        exists(Order, id=order_id, status="delivered") : "只能在确认收货后申请退款"
+    }
+
+    process {
+        "申请退款"
+    }
+}
+
+fn get_refund_status(refund_id: Int) -> Refund {
+    guard {
+        refund_id > 0 : "退款ID无效"
+    }
+
+    process {
+        "获取退款状态"
+    }
+}
+
+// ---------- 评价模块 ----------
+
+@transactional
+fn submit_review(order_id: Int, product_id: Int, rating: Int, content: String, images: String) -> ProductReview {
+    guard {
+        order_id > 0 : "订单ID无效"
+        product_id > 0 : "商品ID无效"
+        rating >= 1 and rating <= 5 : "评分必须在1-5之间"
+    }
+
+    process {
+        "提交商品评价"
+    }
+}
+
+fn get_product_reviews(product_id: Int, page: Int, page_size: Int) -> List<ProductReview> {
+    guard {
+        product_id > 0 : "商品ID无效"
+    }
+
+    process {
+        "获取商品评价列表"
+    }
+}
+
+// ---------- 优惠券模块 ----------
+
+fn get_available_coupons(user_id: Int) -> List<Coupon> {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "获取用户可用优惠券"
+    }
+}
+
+fn claim_coupon(user_id: Int, coupon_id: Int) -> UserCoupon {
+    guard {
+        user_id > 0 : "用户ID无效"
+        coupon_id > 0 : "优惠券ID无效"
+    }
+
+    process {
+        "领取优惠券"
+    }
+}
+
+fn calculate_discount(order_amount: Float, coupon_id: Int) -> Float {
+    guard {
+        order_amount > 0 : "订单金额必须大于0"
+    }
+
+    process {
+        "计算优惠券折扣金额"
+    }
+}
+
+// ----------------------------------------------------------
+// [Module 层] 模块与调度
+// ----------------------------------------------------------
+
+module UserManager {
+    use User
+    use UserAddress
+    use register_user
+    use login_user
+    use get_user_info
+    use update_user_profile
+
+    export register = register_user
+    export login = login_user
+    export info = get_user_info
+    export update_profile = update_user_profile
+
+    init {
+        "初始化用户服务"
+    }
+
+    schedule daily at "01:00" {
+        "清理7天未活跃的临时会话"
+    }
+}
+
+module ProductManager {
+    use Product
+    use ProductSku
+    use Category
+    use get_product_by_id
+    use get_category_products
+    use get_hot_products
+    use update_product_stock
+
+    export detail = get_product_by_id
+    export list = get_category_products
+    export hot = get_hot_products
+    export update_stock = update_product_stock
+
+    init {
+        "初始化商品服务"
+    }
+
+    schedule daily at "03:00" {
+        "更新热门商品排行榜缓存"
+    }
+
+    schedule hourly at "00:00" {
+        "同步商品库存到ES索引"
+    }
+}
+
+module SearchManager {
+    use Product
+    use SearchHistory
+    use search_products
+    use search_suggest
+    use get_popular_searches
+    use save_search_history
+
+    export search = search_products
+    export suggest = search_suggest
+    export popular = get_popular_searches
+    export save_history = save_search_history
+
+    init {
+        "初始化搜索服务，连接ES集群"
+    }
+
+    schedule daily at "04:00" {
+        "重建商品搜索索引"
+    }
+
+    schedule hourly at "00:00" {
+        "更新热门搜索词排行"
+    }
+}
+
+module CartManager {
+    use Cart
+    use add_to_cart
+    use get_cart_items
+    use update_cart_item
+    use remove_from_cart
+    use clear_cart
+
+    export add = add_to_cart
+    export list = get_cart_items
+    export update = update_cart_item
+    export remove = remove_from_cart
+    export clear = clear_cart
+
+    init {
+        "初始化购物车服务，连接Redis"
+    }
+
+    schedule daily at "00:00" {
+        "清理30天未结算的购物车数据"
+    }
+}
+
+module OrderManager {
+    use Order
+    use OrderItem
+    use Payment
+    use Logistics
+    use Refund
+    use create_order
+    use get_order_by_id
+    use get_user_orders
+    use cancel_order
+    use pay_order
+    use ship_order
+    use confirm_delivery
+    use apply_refund
+    use get_refund_status
+
+    export create = create_order
+    export detail = get_order_by_id
+    export list = get_user_orders
+    export cancel = cancel_order
+    export pay = pay_order
+    export ship = ship_order
+    export confirm = confirm_delivery
+    export refund = apply_refund
+    export refund_status = get_refund_status
+
+    init {
+        "初始化订单服务"
+    }
+
+    schedule daily at "02:00" {
+        "取消超过30分钟未支付的订单"
+    }
+
+    schedule daily at "03:00" {
+        "确认收货超时未签收的订单"
+    }
+
+    schedule hourly at "00:00" {
+        "同步订单状态到ES"
+    }
+}
+
+module ReviewManager {
+    use ProductReview
+    use Order
+    use submit_review
+    use get_product_reviews
+
+    export submit = submit_review
+    export list = get_product_reviews
+
+    init {
+        "初始化评价服务"
+    }
+
+    schedule daily at "05:00" {
+        "更新商品平均评分"
+    }
+}
+
+module CouponManager {
+    use Coupon
+    use UserCoupon
+    use get_available_coupons
+    use claim_coupon
+    use calculate_discount
+
+    export available = get_available_coupons
+    export claim = claim_coupon
+    export calculate = calculate_discount
+
+    init {
+        "初始化优惠券服务"
+    }
+
+    schedule daily at "00:00" {
+        "更新过期优惠券状态"
+    }
+}
+
+// ----------------------------------------------------------
+// [Service 层] API 网关
+// ----------------------------------------------------------
+
+@prefix("/api/v1/users")
+@auth("jwt")
+route UserService {
+    use UserManager
+
+    POST "/register"             -> register
+    POST "/login"                -> login
+    GET  "/info"                 -> info
+    PUT  "/profile"              -> update_profile
+}
+
+@prefix("/api/v1/products")
+route ProductService {
+    use ProductManager
+
+    GET  "/{id}"                 -> detail
+    GET  "/category/{id}"        -> list
+    GET  "/hot"                  -> hot
+}
+
+@prefix("/api/v1/search")
+route SearchService {
+    use SearchManager
+
+    GET  "/products"             -> search
+    GET  "/suggest"              -> suggest
+    GET  "/popular"              -> popular
+    POST "/history"              -> save_history
+}
+
+@prefix("/api/v1/cart")
+@auth("jwt")
+route CartService {
+    use CartManager
+
+    POST "/add"                  -> add
+    GET  "/list"                 -> list
+    PUT  "/{id}"                 -> update
+    DELETE "/{id}"               -> remove
+    DELETE "/clear"              -> clear
+}
+
+@prefix("/api/v1/orders")
+@auth("jwt")
+route OrderService {
+    use OrderManager
+
+    POST "/create"               -> create
+    GET  "/{id}"                 -> detail
+    GET  "/list"                 -> list
+    POST "/{id}/cancel"          -> cancel
+    POST "/{id}/pay"             -> pay
+    POST "/{id}/ship"            -> ship
+    POST "/{id}/confirm"         -> confirm
+    POST "/{id}/refund"          -> refund
+    GET  "/refund/{id}"          -> refund_status
+}
+
+@prefix("/api/v1/reviews")
+route ReviewService {
+    use ReviewManager
+
+    POST "/submit"               -> submit
+    GET  "/product/{id}"          -> list
+}
+
+@prefix("/api/v1/coupons")
+@auth("jwt")
+route CouponService {
+    use CouponManager
+
+    GET  "/available"             -> available
+    POST "/claim"                -> claim
+    POST "/calculate"             -> calculate
+}
+
+@prefix("/api/v1/health")
+route HealthService {
+    GET  "/ping"                 -> ping
+}
+
+// ----------------------------------------------------------
+// [辅助结构] 搜索结果
+// ----------------------------------------------------------
+
+struct SearchResult {
+    products: List<Product>
+    total: Int
+    page: Int
+    page_size: Int
+    facets: SearchFacets
+}
+
+struct SearchFacets {
+    categories: List<CategoryFacet>
+    brands: List<BrandFacet>
+    price_ranges: List<PriceRangeFacet>
+}
+
+struct CategoryFacet {
+    id: Int
+    name: String
+    count: Int
+}
+
+struct BrandFacet {
+    name: String
+    count: Int
+}
+
+struct PriceRangeFacet {
+    min: Float
+    max: Float
+    count: Int
+}

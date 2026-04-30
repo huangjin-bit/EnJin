@@ -1,0 +1,25 @@
+# ============================================================
+# config.py.jinja - 全局配置模板 (基建层，非 AI 生成)
+# ============================================================
+# 生成 config.py 文件，从 application.ej 配置中读取技术栈信息。
+
+# 应用配置
+APP_NAME = "{{ app_config.get('name', 'app') }}"
+APP_VERSION = "{{ app_config.get('version', '0.1.0') }}"
+APP_SECRET = "{{ app_config.get('secret', 'enjin-default-secret-change-me') }}"
+
+# 数据库配置
+DATABASE_CONFIG = {
+    "driver": "{{ app_config.get('database', {}).get('driver', 'postgresql') }}",
+    "host": "{{ app_config.get('database', {}).get('host', 'localhost') }}",
+    "port": {{ app_config.get('database', {}).get('port', 5432) }},
+    "name": "{{ app_config.get('database', {}).get('name', 'mydb') }}",
+}
+
+# AI 配置
+AI_CONFIG = {
+    "provider": "{{ app_config.get('ai', {}).get('provider', 'openai') }}",
+    "model": "{{ app_config.get('ai', {}).get('model', 'gpt-4') }}",
+    "max_tokens_per_call": {{ app_config.get('ai', {}).get('max_tokens_per_call', 2000) }},
+    "cache_strategy": "{{ app_config.get('ai', {}).get('cache_strategy', 'ast_hash') }}",
+}

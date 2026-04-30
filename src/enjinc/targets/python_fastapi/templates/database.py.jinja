@@ -1,0 +1,53 @@
+# ============================================================
+# database.py.jinja - 数据库连接模板 (基建层，非 AI 生成)
+# ============================================================
+# 生成 database.py 文件，管理数据库会话和连接池。
+# 此文件由 Jinja2 模板硬编码生成，AI 绝对禁止修改。
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from app.core.config import DATABASE_CONFIG
+
+# 构建数据库连接 URL
+if DATABASE_CONFIG["driver"] == "postgresql":
+    DATABASE_URL = f"postgresql://{DATABASE_CONFIG['host']}:{DATABASE_CONFIG['port']}/{DATABASE_CONFIG['name']}"
+elif DATABASE_CONFIG["driver"] == "mysql":
+    DATABASE_URL = f"mysql+pymysql://{DATABASE_CONFIG['host']}:{DATABASE_CONFIG['port']}/{DATABASE_CONFIG['name']}"
+elif DATABASE_CONFIG["driver"] == "sqlite":
+    DATABASE_URL = f"sqlite:///{DATABASE_CONFIG['name']}.db"
+else:
+    raise ValueError(f"Unsupported database driver: {DATABASE_CONFIG['driver']}")
+
+# 创建数据库引擎
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # 自动检测断开连接
+    echo=False,
+)
+
+# 创建会话工厂
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# 创建声明基类
+Base = declarative_base()
+
+
+# ============================================================
+# 数据库会话管理
+# ============================================================
+
+def get_db():
+    """获取数据库会话（依赖注入用）。"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def init_db():
+    """初始化数据库表（开发期使用）。"""
+    import app.models
+    Base.metadata.create_all(bind=engine)

@@ -1,0 +1,799 @@
+// ============================================================
+// EnJin 示例：Java 分布式电商系统 - 风控模块
+// 本文件定义独立的风控系统，与 trade.ej 主系统深度集成。
+// 集成点: 用户注册/登录、订单创建、支付环节、优惠券领取
+// ============================================================
+
+// ----------------------------------------------------------
+// [Model 层] 风控数据模型
+// ----------------------------------------------------------
+
+// 风控规则定义
+@Table("risk_rules")
+struct RiskRule {
+    id: Int @primary @auto_increment
+    rule_code: String @unique
+    rule_name: String
+    rule_type: Enum("user", "order", "payment", "coupon", "device")
+    risk_level: Enum("low", "medium", "high", "critical")
+    condition_expr: String
+    action: Enum("allow", "block", "review", "alert")
+    score_weight: Int @default(0)
+    enabled: Bool @default("true")
+    start_time: Optional<DateTime>
+    end_time: Optional<DateTime>
+    created_at: DateTime @default("now()")
+    updated_at: DateTime @default("now()")
+}
+
+// 风控事件记录
+@Table("risk_events")
+struct RiskEvent {
+    id: Int @primary @auto_increment
+    event_id: String @unique
+    event_type: Enum("register", "login", "create_order", "payment", "claim_coupon", "review")
+    user_id: Optional<Int> @foreign_key("User.id")
+    order_id: Optional<Int> @foreign_key("Order.id")
+    payment_id: Optional<Int> @foreign_key("Payment.id")
+    risk_level: Enum("low", "medium", "high", "critical")
+    triggered_rules: String
+    risk_score: Int
+    decision: Enum("allow", "block", "review", "alert")
+    detail: String
+    ip_address: Optional<String>
+    device_fingerprint: Optional<String>
+    created_at: DateTime @default("now()")
+}
+
+// 用户风控档案
+@Table("risk_profiles")
+struct RiskProfile {
+    id: Int @primary @auto_increment
+    user_id: Int @unique @foreign_key("User.id")
+    total_score: Int @default(0)
+    risk_level: Enum("low", "medium", "high", "critical") @default("low")
+    login_fail_count: Int @default(0)
+    order_count: Int @default(0)
+    payment_count: Int @default(0)
+    blocked_count: Int @default(0)
+    reviewed_count: Int @default(0)
+    last_risk_time: Optional<DateTime>
+    tags: String
+    created_at: DateTime @default("now()")
+    updated_at: DateTime @default("now()")
+}
+
+// 黑名单
+@Table("risk_blacklist")
+struct RiskBlacklist {
+    id: Int @primary @auto_increment
+    blacklist_type: Enum("user", "phone", "email", "ip", "device", "address")
+    blacklist_value: String
+    reason: String
+    risk_level: Enum("low", "medium", "high", "critical")
+    expires_at: Optional<DateTime>
+    created_by: String
+    created_at: DateTime @default("now()")
+}
+
+// 白名单
+@Table("risk_whitelist")
+struct RiskWhitelist {
+    id: Int @primary @auto_increment
+    whitelist_type: Enum("user", "phone", "email", "ip", "device")
+    whitelist_value: String
+    reason: String
+    expires_at: Optional<DateTime>
+    created_by: String
+    created_at: DateTime @default("now()")
+}
+
+// 风控预警记录
+@Table("risk_alerts")
+struct RiskAlert {
+    id: Int @primary @auto_increment
+    alert_code: String @unique
+    alert_level: Enum("info", "warning", "danger", "critical")
+    alert_type: Enum("user", "order", "payment", "coupon", "device")
+    user_id: Optional<Int> @foreign_key("User.id")
+    order_id: Optional<Int> @foreign_key("Order.id")
+    title: String
+    content: String
+    status: Enum("pending", "processing", "resolved", "ignored")
+    handler: Optional<String>
+    resolved_at: Optional<DateTime>
+    created_at: DateTime @default("now()")
+}
+
+// 设备指纹
+@Table("device_fingerprints")
+struct DeviceFingerprint {
+    id: Int @primary @auto_increment
+    device_id: String @unique
+    device_type: String
+    browser: Optional<String>
+    os: Optional<String>
+    ip_address: String
+    risk_score: Int @default(0)
+    last_seen: DateTime @default("now()")
+    tags: String
+    created_at: DateTime @default("now()")
+}
+
+// 敏感操作日志
+@Table("risk_operation_logs")
+struct RiskOperationLog {
+    id: Int @primary @auto_increment
+    user_id: Optional<Int> @foreign_key("User.id")
+    operation_type: Enum("register", "login", "order", "payment", "refund", "coupon", "review")
+    operation_id: String
+    before_status: Optional<String>
+    after_status: Optional<String>
+    risk_checked: Bool @default("false")
+    risk_decision: Optional<String>
+    ip_address: Optional<String>
+    user_agent: Optional<String>
+    created_at: DateTime @default("now()")
+}
+
+// ----------------------------------------------------------
+// [Method 层] 风控业务方法
+// ----------------------------------------------------------
+
+// ---------- 用户风控 ----------
+
+@locked
+fn evaluate_user_register_risk(username: String, email: String, phone: String, ip_address: String, device_fingerprint: String) -> RiskDecision {
+    guard {
+        username.length > 0 : "用户名不能为空"
+        email.contains("@") : "邮箱格式不合法"
+        ip_address.length > 0 : "IP地址不能为空"
+    }
+
+    process {
+        "评估用户注册风险，检查黑名单、设备指纹、IP段、新账号模式"
+    }
+
+    expect {
+        evaluate_user_register_risk("alice", "alice@test.com", "13800001111", "192.168.1.1", "fp_abc123").decision == "allow"
+        check_blacklist("user", "1000").hit == false
+    }
+}
+
+@locked
+fn evaluate_user_login_risk(user_id: Int, ip_address: String, device_fingerprint: String, login_status: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        ip_address.length > 0 : "IP地址不能为空"
+    }
+
+    process {
+        "评估用户登录风险，检查异地登录、暴力破解、设备变更"
+    }
+
+    expect {
+        evaluate_user_login_risk(1, "192.168.1.1", "fp_abc123", "success").risk_level == "low"
+        get_risk_profile(1).login_fail_count >= 0
+    }
+}
+
+// ---------- 订单风控 ----------
+
+@locked
+fn evaluate_order_risk(user_id: Int, order_amount: Float, product_count: Int, address_hash: String, ip_address: String, device_fingerprint: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        order_amount > 0 : "订单金额必须大于0"
+        product_count > 0 : "商品数量必须大于0"
+    }
+
+    process {
+        "评估订单风险，检查大额订单、地址异常、高频下单、商品限制"
+    }
+
+    expect {
+        evaluate_order_risk(1, 2999.00, 5, "addr_hash_abc", "192.168.1.1", "fp_abc123").decision == "allow"
+    }
+}
+
+@locked
+fn evaluate_high_value_order_risk(order_id: Int, user_id: Int, amount: Float) -> RiskDecision {
+    guard {
+        order_id > 0 : "订单ID无效"
+        user_id > 0 : "用户ID无效"
+        amount > 0 : "金额必须大于0"
+    }
+
+    process {
+        "评估高价值订单风险，触发人工审核流程"
+    }
+
+    expect {
+        evaluate_high_value_order_risk(1001, 1, 19999.00).risk_level == "critical"
+    }
+}
+
+// ---------- 支付风控 ----------
+
+@locked
+fn evaluate_payment_risk(user_id: Int, payment_amount: Float, payment_method: String, card_bin: String, ip_address: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        payment_amount > 0 : "支付金额必须大于0"
+        payment_method.length > 0 : "支付方式不能为空"
+    }
+
+    process {
+        "评估支付风险，检查信用卡风控、欺诈交易、可疑金额"
+    }
+
+    expect {
+        evaluate_payment_risk(1, 5999.00, "credit_card", "622202", "192.168.1.1").decision == "allow"
+    }
+}
+
+@locked
+fn detect_stolen_card(user_id: Int, card_bin: String, card_last4: String, ip_address: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        card_bin.length > 0 : "卡BIN不能为空"
+        card_last4.length > 0 : "卡号后四位不能为空"
+    }
+
+    process {
+        "检测盗卡交易，检查卡BIN库、黑名单、CVV验证"
+    }
+
+    expect {
+        detect_stolen_card(1, "622202", "1234", "192.168.1.1").hit == false
+    }
+}
+
+// ---------- 优惠券风控 ----------
+
+@locked
+fn evaluate_coupon_claim_risk(user_id: Int, coupon_id: Int, ip_address: String, device_fingerprint: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        coupon_id > 0 : "优惠券ID无效"
+    }
+
+    process {
+        "评估优惠券领取风险，检查黑产设备、批量领取、账号关联"
+    }
+
+    expect {
+        evaluate_coupon_claim_risk(1, 1001, "192.168.1.1", "fp_abc123").decision == "allow"
+    }
+}
+
+// ---------- 黑名单管理 ----------
+
+fn check_blacklist(blacklist_type: String, blacklist_value: String) -> BlacklistResult {
+    guard {
+        blacklist_type.length > 0 : "类型不能为空"
+        blacklist_value.length > 0 : "值不能为空"
+    }
+
+    process {
+        "检查指定类型和值是否在黑名单中"
+    }
+
+    expect {
+        check_blacklist("user", "1000").hit == false
+        check_blacklist("ip", "192.168.1.1").hit == false
+    }
+}
+
+@locked
+fn add_to_blacklist(blacklist_type: String, blacklist_value: String, reason: String, risk_level: String, expires_days: Int, operator: String) -> Bool {
+    guard {
+        blacklist_type.length > 0 : "类型不能为空"
+        blacklist_value.length > 0 : "值不能为空"
+        reason.length > 0 : "原因不能为空"
+        risk_level.length > 0 : "风险等级不能为空"
+    }
+
+    process {
+        "将指定值加入黑名单"
+    }
+
+    expect {
+        add_to_blacklist("ip", "10.0.0.1", "异常IP段", "high", 30, "system") == true
+    }
+}
+
+@locked
+fn remove_from_blacklist(blacklist_type: String, blacklist_value: String, operator: String) -> Bool {
+    guard {
+        blacklist_type.length > 0 : "类型不能为空"
+        blacklist_value.length > 0 : "值不能为空"
+    }
+
+    process {
+        "从黑名单移除指定值"
+    }
+
+    expect {
+        remove_from_blacklist("ip", "10.0.0.1", "system") == true
+    }
+}
+
+// ---------- 白名单管理 ----------
+
+fn check_whitelist(whitelist_type: String, whitelist_value: String) -> WhitelistResult {
+    guard {
+        whitelist_type.length > 0 : "类型不能为空"
+        whitelist_value.length > 0 : "值不能为空"
+    }
+
+    process {
+        "检查指定类型和值是否在白名单中"
+    }
+
+    expect {
+        check_whitelist("user", "vip_user_1").hit == true
+    }
+}
+
+@locked
+fn add_to_whitelist(whitelist_type: String, whitelist_value: String, reason: String, expires_days: Int, operator: String) -> Bool {
+    guard {
+        whitelist_type.length > 0 : "类型不能为空"
+        whitelist_value.length > 0 : "值不能为空"
+        reason.length > 0 : "原因不能为空"
+    }
+
+    process {
+        "将指定值加入白名单"
+    }
+
+    expect {
+        add_to_whitelist("user", "vip_user_1", "VIP用户", 365, "admin") == true
+    }
+}
+
+// ---------- 风控档案 ----------
+
+@locked
+fn get_risk_profile(user_id: Int) -> RiskProfile {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "获取用户风控档案"
+    }
+
+    expect {
+        get_risk_profile(1).total_score >= 0
+    }
+}
+
+@locked
+fn update_risk_profile(user_id: Int, risk_level: String, score_delta: Int, operation_type: String) -> RiskProfile {
+    guard {
+        user_id > 0 : "用户ID无效"
+        risk_level.length > 0 : "风险等级不能为空"
+    }
+
+    process {
+        "更新用户风控档案"
+    }
+
+    expect {
+        update_risk_profile(1, "low", -10, "login_success").total_score >= 0
+    }
+}
+
+// ---------- 预警管理 ----------
+
+@locked
+fn trigger_risk_alert(alert_level: String, alert_type: String, user_id: Int, order_id: Int, title: String, content: String) -> RiskAlert {
+    guard {
+        alert_level.length > 0 : "预警等级不能为空"
+        alert_type.length > 0 : "预警类型不能为空"
+        title.length > 0 : "标题不能为空"
+    }
+
+    process {
+        "触发风控预警"
+    }
+
+    expect {
+        trigger_risk_alert("danger", "order", 1, 1001, "高风险订单", "订单金额异常").alert_code != ""
+    }
+}
+
+fn get_pending_alerts(alert_type: String, limit: Int) -> List<RiskAlert> {
+    guard {
+        limit > 0 : "数量必须大于0"
+        limit <= 100 : "数量不能超过100"
+    }
+
+    process {
+        "获取待处理风控预警列表"
+    }
+
+    expect {
+        get_pending_alerts("order", 10).size >= 0
+    }
+}
+
+@locked
+fn resolve_alert(alert_code: String, handler: String, resolution: String) -> Bool {
+    guard {
+        alert_code.length > 0 : "预警编号不能为空"
+        resolution.length > 0 : "处理结果不能为空"
+    }
+
+    process {
+        "处理并关闭风控预警"
+    }
+
+    expect {
+        resolve_alert("ALT20240101001", "admin", "已核实为正常交易").decision == "resolved"
+    }
+}
+
+// ---------- 设备指纹 ----------
+
+@locked
+fn register_device_fingerprint(device_id: String, device_type: String, browser: String, os: String, ip_address: String) -> DeviceFingerprint {
+    guard {
+        device_id.length > 0 : "设备ID不能为空"
+        device_type.length > 0 : "设备类型不能为空"
+        ip_address.length > 0 : "IP地址不能为空"
+    }
+
+    process {
+        "注册设备指纹信息"
+    }
+
+    expect {
+        register_device_fingerprint("fp_abc123", "mobile", "Chrome", "Android", "192.168.1.1").device_id != ""
+    }
+}
+
+fn evaluate_device_risk(device_id: String, ip_address: String) -> RiskDecision {
+    guard {
+        device_id.length > 0 : "设备ID不能为空"
+        ip_address.length > 0 : "IP地址不能为空"
+    }
+
+    process {
+        "评估设备风险，检查设备指纹库、IP变更、模拟器检测"
+    }
+
+    expect {
+        evaluate_device_risk("fp_abc123", "192.168.1.1").risk_level == "low"
+    }
+}
+
+// ---------- 规则引擎 ----------
+
+@locked
+fn execute_risk_rules(event_type: String, user_id: Int, context: String) -> List<RuleResult> {
+    guard {
+        event_type.length > 0 : "事件类型不能为空"
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "执行所有适用的风控规则，返回命中的规则列表"
+    }
+
+    expect {
+        execute_risk_rules("create_order", 1, "ctx").size >= 0
+    }
+}
+
+@locked
+fn calculate_risk_score(user_id: Int, event_type: String, risk_factors: String) -> Int {
+    guard {
+        user_id > 0 : "用户ID无效"
+        event_type.length > 0 : "事件类型不能为空"
+    }
+
+    process {
+        "根据多个风险因子计算综合风险评分 (0-100)"
+    }
+
+    expect {
+        calculate_risk_score(1, "create_order", "factors") >= 0
+        calculate_risk_score(1, "create_order", "factors") <= 100
+    }
+}
+
+// ---------- 实时决策 ----------
+
+@locked
+fn make_risk_decision(event_type: String, user_id: Int, order_id: Int, amount: Float, ip_address: String, device_fingerprint: String) -> RiskDecision {
+    guard {
+        event_type.length > 0 : "事件类型不能为空"
+        user_id > 0 : "用户ID无效"
+    }
+
+    process {
+        "综合所有风控环节，做出最终决策: allow/block/review/alert"
+    }
+
+    expect {
+        make_risk_decision("create_order", 1, 1001, 2999.00, "192.168.1.1", "fp_abc123").decision == "allow"
+    }
+}
+
+// ---------- 风控统计 ----------
+
+fn get_risk_statistics(start_date: String, end_date: String) -> RiskStatistics {
+    guard {
+        start_date.length > 0 : "开始日期不能为空"
+        end_date.length > 0 : "结束日期不能为空"
+    }
+
+    process {
+        "获取风控统计报表，包括各等级风险事件数量、处理时效"
+    }
+
+    expect {
+        get_risk_statistics("2024-01-01", "2024-01-31").total_events >= 0
+    }
+}
+
+fn get_risk_trend(days: Int) -> List<RiskTrendItem> {
+    guard {
+        days > 0 : "天数必须大于0"
+        days <= 90 : "天数不能超过90"
+    }
+
+    process {
+        "获取近N天风险事件趋势"
+    }
+
+    expect {
+        get_risk_trend(7).size == 7
+    }
+}
+
+// ----------------------------------------------------------
+// [Module 层] 风控模块
+// ----------------------------------------------------------
+
+module RiskControlManager {
+    use RiskRule
+    use RiskEvent
+    use RiskProfile
+    use RiskBlacklist
+    use RiskWhitelist
+    use RiskAlert
+    use DeviceFingerprint
+    use evaluate_user_register_risk
+    use evaluate_user_login_risk
+    use evaluate_order_risk
+    use evaluate_high_value_order_risk
+    use evaluate_payment_risk
+    use detect_stolen_card
+    use evaluate_coupon_claim_risk
+    use check_blacklist
+    use add_to_blacklist
+    use remove_from_blacklist
+    use check_whitelist
+    use add_to_whitelist
+    use get_risk_profile
+    use update_risk_profile
+    use trigger_risk_alert
+    use get_pending_alerts
+    use resolve_alert
+    use register_device_fingerprint
+    use evaluate_device_risk
+    use execute_risk_rules
+    use calculate_risk_score
+    use make_risk_decision
+    use get_risk_statistics
+    use get_risk_trend
+
+    export evaluate_register = evaluate_user_register_risk
+    export evaluate_login = evaluate_user_login_risk
+    export evaluate_order = evaluate_order_risk
+    export evaluate_high_value_order = evaluate_high_value_order_risk
+    export evaluate_payment = evaluate_payment_risk
+    export detect_card = detect_stolen_card
+    export evaluate_coupon = evaluate_coupon_claim_risk
+    export check_bl = check_blacklist
+    export add_bl = add_to_blacklist
+    export remove_bl = remove_from_blacklist
+    export check_wl = check_whitelist
+    export add_wl = add_to_whitelist
+    export profile = get_risk_profile
+    export update_profile = update_risk_profile
+    export alert = trigger_risk_alert
+    export pending_alerts = get_pending_alerts
+    export resolve = resolve_alert
+    export register_device = register_device_fingerprint
+    export evaluate_device = evaluate_device_risk
+    export execute_rules = execute_risk_rules
+    export calculate_score = calculate_risk_score
+    export decide = make_risk_decision
+    export statistics = get_risk_statistics
+    export trend = get_risk_trend
+
+    init {
+        "初始化风控引擎，加载风控规则到内存"
+    }
+
+    schedule daily at "00:00" {
+        "更新风控规则缓存，重新计算高风险用户档案"
+    }
+
+    schedule hourly at "00:00" {
+        "清理过期的黑名单和白名单记录"
+    }
+
+    schedule daily at "06:00" {
+        "生成上一日的风控统计报表并发送邮件"
+    }
+}
+
+// ----------------------------------------------------------
+// [Service 层] 风控服务API
+// ----------------------------------------------------------
+
+@prefix("/api/v1/risk")
+@auth("jwt")
+route RiskControlService {
+    use RiskControlManager
+
+    // 用户风控
+    POST "/evaluate/register"     -> evaluate_register
+    POST "/evaluate/login"        -> evaluate_login
+
+    // 订单风控
+    POST "/evaluate/order"         -> evaluate_order
+    POST "/evaluate/high_value_order" -> evaluate_high_value_order
+
+    // 支付风控
+    POST "/evaluate/payment"       -> evaluate_payment
+    POST "/detect/stolen_card"     -> detect_card
+
+    // 优惠券风控
+    POST "/evaluate/coupon"        -> evaluate_coupon
+
+    // 黑名单管理
+    POST "/blacklist/check"       -> check_bl
+    POST "/blacklist/add"          -> add_bl
+    POST "/blacklist/remove"       -> remove_bl
+
+    // 白名单管理
+    POST "/whitelist/check"        -> check_wl
+    POST "/whitelist/add"          -> add_wl
+
+    // 风控档案
+    GET  "/profile/{user_id}"      -> profile
+    PUT  "/profile/{user_id}"     -> update_profile
+
+    // 预警管理
+    POST "/alert/trigger"          -> alert
+    GET  "/alert/pending"          -> pending_alerts
+    POST "/alert/resolve"          -> resolve
+
+    // 设备指纹
+    POST "/device/register"        -> register_device
+    POST "/device/evaluate"        -> evaluate_device
+
+    // 规则引擎
+    POST "/rules/execute"          -> execute_rules
+    POST "/score/calculate"        -> calculate_score
+
+    // 实时决策
+    POST "/decision"               -> decide
+
+    // 统计报表
+    GET  "/statistics"             -> statistics
+    GET  "/trend"                  -> trend
+}
+
+// ----------------------------------------------------------
+// [Integration 层] 与主系统集成
+// 本节定义的函数将被 trade.ej 的模块调用
+// ----------------------------------------------------------
+
+// 集成到用户注册流程
+fn risk_check_on_register(username: String, email: String, phone: String, ip: String, device_fp: String) -> RiskDecision {
+    guard {
+        username.length > 0 : "用户名不能为空"
+    }
+    process {
+        "用户注册时调用风控评估"
+    }
+}
+
+// 集成到登录流程
+fn risk_check_on_login(user_id: Int, ip: String, device_fp: String, status: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+    }
+    process {
+        "用户登录时调用风控评估"
+    }
+}
+
+// 集成到订单创建流程
+fn risk_check_on_order_create(user_id: Int, amount: Float, product_count: Int, addr: String, ip: String, device_fp: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        amount > 0 : "金额必须大于0"
+    }
+    process {
+        "订单创建时调用风控评估"
+    }
+}
+
+// 集成到支付流程
+fn risk_check_on_payment(user_id: Int, amount: Float, method: String, card_bin: String, ip: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        amount > 0 : "金额必须大于0"
+    }
+    process {
+        "支付时调用风控评估"
+    }
+}
+
+// 集成到优惠券领取
+fn risk_check_on_coupon_claim(user_id: Int, coupon_id: Int, ip: String, device_fp: String) -> RiskDecision {
+    guard {
+        user_id > 0 : "用户ID无效"
+        coupon_id > 0 : "优惠券ID无效"
+    }
+    process {
+        "优惠券领取时调用风控评估"
+    }
+}
+
+// ----------------------------------------------------------
+// [Struct 层] 辅助数据结构
+// ----------------------------------------------------------
+
+struct RiskDecision {
+    decision: String
+    risk_level: String
+    risk_score: Int
+    hit_rules: List<String>
+    suggestion: String
+}
+
+struct BlacklistResult {
+    hit: Bool
+    record: Optional<RiskBlacklist>
+    reason: String
+}
+
+struct WhitelistResult {
+    hit: Bool
+    record: Optional<RiskWhitelist>
+    reason: String
+}
+
+struct RuleResult {
+    rule_code: String
+    rule_name: String
+    hit: Bool
+    score: Int
+    action: String
+}
+
+struct RiskStatistics {
+    total_events: Int
+    allow_count: Int
+    block_count: Int
+    review_count: Int
+    alert_count: Int
+    avg_process_time_ms: Float
+}
+
+struct RiskTrendItem {
+    date: String
+    event_count: Int
+    block_count: Int
+    risk_score_avg: Float
+}

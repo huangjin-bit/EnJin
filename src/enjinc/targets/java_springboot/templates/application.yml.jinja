@@ -1,0 +1,91 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: {{ application.name }}
+
+  datasource:
+    driver-class-name: {% if application.database.driver == 'postgresql' %}org.postgresql.Driver{% else %}com.mysql.cj.jdbc.Driver{% endif %}
+    url: jdbc:{% if application.database.driver == 'postgresql' %}postgresql{% else %}mysql{% endif %}://${DB_HOST:localhost}:${DB_PORT:5432}/{{ application.database.name }}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: {% if application.database.driver == 'postgresql' %}org.hibernate.dialect.PostgreSQLDialect{% else %}org.hibernate.dialect.MySQLDialect{% endif %}
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+    consumer:
+      group-id: {{ application.name }}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+  security:
+    jwt:
+      secret: ${JWT_SECRET:your-256-bit-secret-key-here-must-be-at-least-32-chars}
+      expiration: 86400000
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: {{ application.name | replace("-", "_") }}.domain.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+{% if use_seata %}
+seata:
+  enabled: true
+  application-id: {{ application.name }}
+  tx-service-group: default-tx-group
+  service:
+    vgroup-mapping:
+      default-tx-group: default
+  registry:
+    type: nacos
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      namespace: ${NACOS_NAMESPACE:}
+      group: SEATA_GROUP
+{% endif %}
+
+{% if use_tracing %}
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+{% endif %}
+
+logging:
+  level:
+    root: INFO
+    {{ application.name }}: DEBUG
+    org.springframework.security: DEBUG

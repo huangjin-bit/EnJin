@@ -1,0 +1,62 @@
+# ============================================================
+# route.py.jinja - HTTP 路由模板 (服务层，AI 插槽)
+# ============================================================
+# 生成 FastAPI 路由文件，将 route 定义映射为 API 端点。
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models import *  # noqa
+from app.services import *  # noqa
+from app.schemas import *  # noqa
+from typing import List
+{% if has_auth %}
+from app.core.security import get_current_user
+{% endif %}
+
+# 创建路由实例
+router = APIRouter()
+
+# 路由前缀
+{% for anno in route.annotations %}
+{% if anno.name == "prefix" %}PREFIX = "{{ anno.args[0] }}"
+{% endif %}
+{% endfor %}
+
+# ============================================================
+# 依赖注入
+# ============================================================
+
+
+{% if ai_code %}
+# ============================================================
+# AI-generated route handlers
+# ============================================================
+{{ ai_code }}
+
+{% else %}
+# ============================================================
+# HTTP 端点定义
+# ============================================================
+{% for endpoint in route.endpoints %}
+{% set ep_params = ["db: Session = Depends(get_db)"] %}
+{% if "{id}" in endpoint.path %}{{ ep_params.insert(0, "id: int") or "" }}{% endif %}
+{% if has_auth %}{{ ep_params.append("current_user: dict = Depends(get_current_user)") or "" }}{% endif %}
+{% if endpoint.request_model %}{{ ep_params.append("body: " + endpoint.request_model + " = None") or "" }}{% endif %}
+
+@router.{{ endpoint.method.lower() }}("{{ endpoint.path }}")
+async def handle_{{ endpoint.handler }}({{ ep_params | join(", ") }}):
+    """
+    {{ endpoint.method }} {{ endpoint.path }} → {{ endpoint.handler }}
+
+    Handler: {{ endpoint.handler }}
+    Locked: {{ endpoint.is_locked }}
+    """
+
+    try:
+        return {"status": "ok", "message": "{{ endpoint.handler }} not implemented"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+{% endfor %}
+{% endif %}

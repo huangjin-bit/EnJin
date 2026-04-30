@@ -1,0 +1,30 @@
+# Auto-generated pytest tests for {{ fn.name }}
+# Generated from EnJin expect assertions
+import pytest
+
+
+class Test{{ fn.name.replace("_", "").title() }}:
+    {% for assertion in assertions %}
+    def test_{{ fn.name }}_{{ loop.index }}(self):
+        """{{ assertion.raw.replace('\"', '\\\"') }}"""
+        {% if assertion.assertion_type.value == 'throws' %}
+        with pytest.raises(Exception) as exc_info:
+            {{ assertion.fn_call }}
+        {% if assertion.expected_exception %}
+        assert "{{ assertion.expected_exception }}" in str(exc_info.value)
+        {% endif %}
+        {% elif assertion.assertion_type.value == 'property_eq' %}
+        result = {{ assertion.fn_call }}
+        {% if assertion.property_path %}
+        assert result.{{ assertion.property_path }} == {{ assertion.expected_value }}
+        {% else %}
+        assert result == {{ assertion.expected_value }}
+        {% endif %}
+        {% elif assertion.assertion_type.value == 'status_eq' %}
+        result = {{ assertion.fn_call }}
+        assert result.status == {{ assertion.expected_value }}
+        {% elif assertion.assertion_type.value == 'contains' %}
+        result = {{ assertion.fn_call }}
+        assert {{ assertion.expected_value }} in result
+        {% endif %}
+    {% endfor %}

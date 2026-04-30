@@ -1,0 +1,32 @@
+package {{ pkg }}.gateway;
+
+import org.springframework.cloud.gateway.route.RouteLocator;
+import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * API Gateway 路由配置。
+ * 将外部请求路由到对应的微服务。
+ */
+@Configuration
+public class GatewayRouteConfig {
+
+{% for route in routes %}
+    /**
+     * {{ route.name }} 路由规则。
+     */
+    @Bean
+    public RouteLocator {{ route.name | lower }}Routes(RouteLocatorBuilder builder) {
+        return builder.routes()
+{% for ep in route.endpoints %}
+            .route("{{ route.name | lower }}_{{ ep.method | lower }}_{{ loop.index }}", r -> r
+                .path("{{ ep.path }}")
+                .and().method("{{ ep.method | upper }}")
+                .uri("lb://{{ route.name | lower }}-service"))
+{% endfor %}
+            .build();
+    }
+
+{% endfor %}
+}

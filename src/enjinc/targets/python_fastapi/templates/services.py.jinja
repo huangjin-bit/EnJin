@@ -1,0 +1,51 @@
+# ============================================================
+# services.py.jinja - 业务逻辑服务模板 (业务层，AI 插槽)
+# ============================================================
+
+from app.core.database import SessionLocal
+from app.models import *  # noqa
+from app.core.exceptions import ConflictError, NotFoundError
+from typing import List, Optional
+
+{% macro py_type(t) %}
+{%- if not t -%}None
+{%- elif t.base == "List" -%}list[{{ t.params[0].base if t.params else "Any" }}]
+{%- elif t.base == "Bool" -%}bool
+{%- elif t.base == "String" -%}str
+{%- elif t.base == "Int" -%}int
+{%- elif t.base == "Float" -%}float
+{%- elif t.is_optional -%}Optional[{{ t.base }}]
+{%- else -%}{{ t.base }}
+{%- endif -%}
+{% endmacro %}
+
+
+# ============================================================
+# 业务逻辑函数
+# ============================================================
+{% for item in functions %}
+
+{% if item.ai_code %}
+# --- AI-generated: {{ item.fn.name }} ---
+{{ item.ai_code }}
+
+{% else %}
+def {{ item.fn.name }}({{ item.params_str }}){% if item.fn.return_type %} -> {{ py_type(item.fn.return_type) }}{% endif %}:
+    """{{ item.fn.name }} business logic."""
+{% if item.fn.native_blocks %}
+{% for block in item.fn.native_blocks %}
+{% if block.target == "python" %}
+{{ block.code | strip_lines | indent(4, first=True) }}
+{% endif %}
+{% endfor %}
+{% else %}
+{% if item.guard_code %}
+{% for line in item.guard_code %}
+    {{ line }}
+{% endfor %}
+{% endif %}
+
+    raise NotImplementedError("{{ item.fn.name }} not yet implemented")
+{% endif %}
+{% endif %}
+{% endfor %}

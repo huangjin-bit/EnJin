@@ -1,0 +1,116 @@
+// ============================================================
+// EnJin 示例：博客平台
+// 演示多实体关联 + 内容管理 + 评论系统
+// ============================================================
+
+// Model 层
+@table("blog_posts")
+struct Post {
+    id: Int @primary @auto_increment
+    title: String @unique @max_length(200)
+    content: String
+    author_id: Int
+    status: Enum("draft", "published", "archived") @default("draft")
+    created_at: DateTime @default("now()")
+    updated_at: Optional<DateTime>
+}
+
+@table("blog_comments")
+struct Comment {
+    id: Int @primary @auto_increment
+    post_id: Int
+    author_name: String @max_length(100)
+    content: String
+    created_at: DateTime @default("now()")
+}
+
+@table("blog_tags")
+struct Tag {
+    id: Int @primary @auto_increment
+    name: String @unique @max_length(50)
+}
+
+// Method 层
+@transactional
+fn create_post(title: String, content: String, author_id: Int) -> Post {
+    guard {
+        title.length > 0 : "标题不能为空"
+        title.length <= 200 : "标题不能超过200字"
+        content.length > 0 : "内容不能为空"
+        author_id > 0 : "作者ID无效"
+    }
+    process { "创建一篇新的博客文章，状态默认为 draft" }
+}
+
+fn get_post_by_id(id: Int) -> Post {
+    guard {
+        id > 0 : "文章ID必须为正整数"
+    }
+    process { "根据ID查询文章，包含作者信息" }
+}
+
+fn list_published_posts() -> List<Post> {
+    process { "查询所有状态为 published 的文章，按 created_at 降序排列" }
+}
+
+@transactional
+fn publish_post(id: Int) -> Post {
+    guard {
+        id > 0 : "文章ID必须为正整数"
+    }
+    process { "将文章状态从 draft 改为 published" }
+}
+
+@transactional
+fn add_comment(post_id: Int, author_name: String, content: String) -> Comment {
+    guard {
+        post_id > 0 : "文章ID无效"
+        author_name.length > 0 : "评论者名称不能为空"
+        content.length > 0 : "评论内容不能为空"
+    }
+    process { "为指定文章添加评论" }
+}
+
+fn create_tag(name: String) -> Tag {
+    guard {
+        name.length > 0 : "标签名不能为空"
+        not exists(Tag, name=name) : "标签已存在"
+    }
+    process { "创建新标签" }
+}
+
+// Module 层
+module BlogManager {
+    use Post
+    use Comment
+    use Tag
+    use create_post
+    use get_user_by_id
+    use list_published_posts
+    use publish_post
+    use add_comment
+    use create_tag
+
+    export create = create_post
+    export detail = get_post_by_id
+    export list = list_published_posts
+    export publish = publish_post
+    export comment = add_comment
+    export add_tag = create_tag
+
+    init { "初始化博客模块，预热文章缓存" }
+}
+
+// Service 层
+@prefix("/api/v1/blog")
+@auth("jwt")
+route BlogService {
+    use BlogManager
+
+    POST   "/posts"            -> create
+    GET    "/posts"            -> list
+    GET    "/posts/{id}"       -> detail
+    PUT    "/posts/{id}/publish" -> publish
+    POST   "/posts/{id}/comments" -> comment
+    POST   "/tags"             -> add_tag
+}

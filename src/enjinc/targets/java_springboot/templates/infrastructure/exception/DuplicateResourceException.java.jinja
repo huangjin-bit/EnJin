@@ -1,0 +1,15 @@
+package {{ application.name | replace("-", "_") }}.infrastructure.exception;
+
+/**
+ * 资源重复异常。
+ */
+public class DuplicateResourceException extends AppException {
+
+    public DuplicateResourceException(String resource, String field, Object value) {
+        super(409, resource + " already exists (" + field + "=" + value + ")");
+    }
+
+    public DuplicateResourceException(String message) {
+        super(409, message);
+    }
+}

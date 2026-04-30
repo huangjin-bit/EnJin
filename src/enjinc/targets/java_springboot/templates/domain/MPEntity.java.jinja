@@ -1,0 +1,68 @@
+package {{ application.name | replace("-", "_") }}.domain.entity;
+
+import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import java.time.LocalDateTime;
+
+{% for struct in structs %}
+{% set table_name = struct.name.lower() + "s" %}
+{% for anno in struct.annotations %}
+{% if anno.name == 'table' %}
+{% set table_name = anno.args[0] %}
+{% endif %}
+{% endfor %}
+
+{% set has_bigint_id = false %}
+{% for field in struct.fields %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' and field.type.base == 'Int' %}
+{% set has_bigint_id = true %}
+{% endif %}
+{% endfor %}
+{% endfor %}
+
+{% if has_bigint_id %}
+/**
+ * {{ struct.name }} Mapper
+ * Table: {{ table_name }}
+ */
+@TableName("{{ table_name }}")
+public class {{ struct.name }} {
+
+{% for field in struct.fields %}
+{% set column_name = field.name %}
+{% set is_version = false %}
+{% set is_logic_delete = false %}
+
+{% for anno in field.annotations %}
+{% if anno.name == 'version' %}
+{% set is_version = true %}
+{% endif %}
+{% if anno.name == 'logic_delete' %}
+{% set is_logic_delete = true %}
+{% endif %}
+{% endfor %}
+
+    @TableField("{{ column_name }}")
+{% if field.type.base == 'Int' %}
+    private Long {{ field.name }};
+{% elif field.type.base == 'Float' %}
+    private Double {{ field.name }};
+{% elif field.type.base == 'Bool' %}
+    private Boolean {{ field.name }};
+{% elif field.type.base == 'DateTime' %}
+    private LocalDateTime {{ field.name }};
+{% elif field.type.base == 'String' %}
+    private String {{ field.name }};
+{% elif field.type.base == 'Enum' %}
+    private String {{ field.name }};
+{% else %}
+    private {{ field.type.base }} {{ field.name }};
+{% endif %}
+{% endfor %}
+}
+{% endif %}
+{% endfor %}

@@ -1,0 +1,33 @@
+package {{ pkg }}.interface.vo;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import java.time.LocalDateTime;
+
+/**
+ * {{ struct.name }} View Object
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class {{ struct.name }}VO {
+
+{% for field in struct.fields %}
+{% if field.name not in sensitive_fields %}
+{% if field.type.base == 'Int' %}
+    private Long {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Float' %}
+    private Double {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Bool' %}
+    private Boolean {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'DateTime' %}
+    private LocalDateTime {{ field.name | snake_to_camel }};
+{% else %}
+    private String {{ field.name | snake_to_camel }};
+{% endif %}
+{% endif %}
+{% endfor %}
+}

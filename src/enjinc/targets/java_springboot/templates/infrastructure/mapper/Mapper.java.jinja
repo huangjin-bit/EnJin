@@ -1,0 +1,15 @@
+package {{ application.name | replace("-", "_") }}.infrastructure.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import {{ application.name | replace("-", "_") }}.domain.entity.{{ struct.name }};
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import java.util.Optional;
+
+@Mapper
+public interface {{ struct.name }}Mapper extends BaseMapper<{{ struct.name }}> {
+
+    default Optional<{{ struct.name }}> findById(@Param("id") Long id) {
+        return Optional.ofNullable(selectById(id));
+    }
+}

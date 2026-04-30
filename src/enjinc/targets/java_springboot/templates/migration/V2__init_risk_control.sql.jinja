@@ -1,0 +1,212 @@
+-- ================================================================
+-- V2__init_risk_control.sql
+-- 风控系统数据库初始化脚本
+-- ================================================================
+
+-- 风控规则表
+CREATE TABLE risk_rules (
+    id BIGSERIAL PRIMARY KEY,
+    rule_code VARCHAR(100) UNIQUE NOT NULL,
+    rule_name VARCHAR(200) NOT NULL,
+    rule_type VARCHAR(50) NOT NULL COMMENT 'user, order, payment, coupon, device',
+    risk_level VARCHAR(20) NOT NULL COMMENT 'low, medium, high, critical',
+    condition_expr TEXT NOT NULL COMMENT '规则条件表达式',
+    action VARCHAR(20) NOT NULL COMMENT 'allow, block, review, alert',
+    score_weight INT DEFAULT 0,
+    enabled BOOLEAN DEFAULT TRUE,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_rules_type ON risk_rules(rule_type);
+CREATE INDEX idx_risk_rules_enabled ON risk_rules(enabled);
+
+-- 风控事件表
+CREATE TABLE risk_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_id VARCHAR(100) UNIQUE NOT NULL,
+    event_type VARCHAR(50) NOT NULL COMMENT 'register, login, create_order, payment, claim_coupon, review',
+    user_id BIGINT,
+    order_id BIGINT,
+    payment_id BIGINT,
+    risk_level VARCHAR(20) NOT NULL,
+    triggered_rules TEXT COMMENT '逗号分隔的规则代码',
+    risk_score INT NOT NULL,
+    decision VARCHAR(20) NOT NULL COMMENT 'allow, block, review, alert',
+    detail TEXT,
+    ip_address VARCHAR(50),
+    device_fingerprint VARCHAR(200),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_events_user ON risk_events(user_id);
+CREATE INDEX idx_risk_events_order ON risk_events(order_id);
+CREATE INDEX idx_risk_events_type ON risk_events(event_type);
+CREATE INDEX idx_risk_events_level ON risk_events(risk_level);
+CREATE INDEX idx_risk_events_created ON risk_events(created_at);
+
+-- 用户风控档案表
+CREATE TABLE risk_profiles (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT UNIQUE NOT NULL REFERENCES users(id),
+    total_score INT DEFAULT 0,
+    risk_level VARCHAR(20) DEFAULT 'low',
+    login_fail_count INT DEFAULT 0,
+    order_count INT DEFAULT 0,
+    payment_count INT DEFAULT 0,
+    blocked_count INT DEFAULT 0,
+    reviewed_count INT DEFAULT 0,
+    last_risk_time TIMESTAMP,
+    tags TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_profiles_user ON risk_profiles(user_id);
+CREATE INDEX idx_risk_profiles_level ON risk_profiles(risk_level);
+
+-- 黑名单表
+CREATE TABLE risk_blacklist (
+    id BIGSERIAL PRIMARY KEY,
+    blacklist_type VARCHAR(50) NOT NULL COMMENT 'user, phone, email, ip, device, address',
+    blacklist_value VARCHAR(500) NOT NULL,
+    reason VARCHAR(500) NOT NULL,
+    risk_level VARCHAR(20) NOT NULL,
+    expires_at TIMESTAMP,
+    created_by VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_blacklist_type_value ON risk_blacklist(blacklist_type, blacklist_value);
+CREATE INDEX idx_risk_blacklist_expires ON risk_blacklist(expires_at);
+
+-- 白名单表
+CREATE TABLE risk_whitelist (
+    id BIGSERIAL PRIMARY KEY,
+    whitelist_type VARCHAR(50) NOT NULL COMMENT 'user, phone, email, ip, device',
+    whitelist_value VARCHAR(500) NOT NULL,
+    reason VARCHAR(500) NOT NULL,
+    expires_at TIMESTAMP,
+    created_by VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_whitelist_type_value ON risk_whitelist(whitelist_type, whitelist_value);
+
+-- 风控预警表
+CREATE TABLE risk_alerts (
+    id BIGSERIAL PRIMARY KEY,
+    alert_code VARCHAR(100) UNIQUE NOT NULL,
+    alert_level VARCHAR(20) NOT NULL COMMENT 'info, warning, danger, critical',
+    alert_type VARCHAR(50) NOT NULL COMMENT 'user, order, payment, coupon, device',
+    user_id BIGINT,
+    order_id BIGINT,
+    title VARCHAR(200) NOT NULL,
+    content TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending' COMMENT 'pending, processing, resolved, ignored',
+    handler VARCHAR(100),
+    resolved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_alerts_user ON risk_alerts(user_id);
+CREATE INDEX idx_risk_alerts_order ON risk_alerts(order_id);
+CREATE INDEX idx_risk_alerts_status ON risk_alerts(status);
+CREATE INDEX idx_risk_alerts_level ON risk_alerts(alert_level);
+CREATE INDEX idx_risk_alerts_created ON risk_alerts(created_at);
+
+-- 设备指纹表
+CREATE TABLE device_fingerprints (
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(200) UNIQUE NOT NULL,
+    device_type VARCHAR(100) NOT NULL,
+    browser VARCHAR(100),
+    os VARCHAR(100),
+    ip_address VARCHAR(50) NOT NULL,
+    risk_score INT DEFAULT 0,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    tags TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_device_fp_device_id ON device_fingerprints(device_id);
+CREATE INDEX idx_device_fp_ip ON device_fingerprints(ip_address);
+
+-- 敏感操作日志表
+CREATE TABLE risk_operation_logs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT,
+    operation_type VARCHAR(50) NOT NULL COMMENT 'register, login, order, payment, refund, coupon, review',
+    operation_id VARCHAR(200) NOT NULL,
+    before_status VARCHAR(50),
+    after_status VARCHAR(50),
+    risk_checked BOOLEAN DEFAULT FALSE,
+    risk_decision VARCHAR(20),
+    ip_address VARCHAR(50),
+    user_agent VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_risk_ops_user ON risk_operation_logs(user_id);
+CREATE INDEX idx_risk_ops_type ON risk_operation_logs(operation_type);
+CREATE INDEX idx_risk_ops_created ON risk_operation_logs(created_at);
+
+-- ================================================================
+-- 初始风控规则数据
+-- ================================================================
+
+INSERT INTO risk_rules (rule_code, rule_name, rule_type, risk_level, condition_expr, action, score_weight, enabled) VALUES
+-- 用户注册规则
+('UR001', '新用户3分钟内注册超过3次', 'user', 'high', 'register_count_3min > 3', 'review', 40, TRUE),
+('UR002', '同一IP 24小时内注册超过10个账号', 'user', 'critical', 'ip_register_count_24h > 10', 'block', 80, TRUE),
+('UR003', '设备指纹命中黑名单', 'user', 'critical', 'device_in_blacklist', 'block', 100, TRUE),
+('UR004', '虚拟手机号段注册', 'user', 'medium', 'phone_virtual_match', 'alert', 30, TRUE),
+('UR005', '同一设备注册多个账号', 'user', 'high', 'device_multi_accounts > 3', 'review', 50, TRUE),
+
+-- 登录规则
+('UL001', '同一账号1小时内登录失败超过5次', 'user', 'high', 'login_fail_1h > 5', 'block', 60, TRUE),
+('UL002', '异地登录检测', 'user', 'medium', 'login_location_change', 'alert', 30, TRUE),
+('UL003', '新设备登录', 'user', 'low', 'new_device_login', 'alert', 20, TRUE),
+('UL004', '登录IP命中黑名单', 'user', 'critical', 'login_ip_blacklist', 'block', 100, TRUE),
+
+-- 订单规则
+('OR001', '单笔订单金额超过5000', 'order', 'medium', 'order_amount > 5000', 'review', 30, TRUE),
+('OR002', '单笔订单金额超过10000', 'order', 'high', 'order_amount > 10000', 'review', 50, TRUE),
+('OR003', '单笔订单金额超过50000', 'order', 'critical', 'order_amount > 50000', 'alert', 80, TRUE),
+('OR004', '同一用户1天内下单超过10笔', 'order', 'high', 'user_order_count_1d > 10', 'review', 40, TRUE),
+('OR005', '收货地址与常用地址不符', 'order', 'medium', 'addr_anomaly', 'review', 35, TRUE),
+('OR006', '高风险地区订单', 'order', 'high', 'high_risk_region', 'review', 45, TRUE),
+('OR007', '新用户首单金额超过2000', 'order', 'medium', 'new_user_first_order > 2000', 'alert', 30, TRUE),
+
+-- 支付规则
+('OP001', '信用卡单笔支付超过5000', 'payment', 'medium', 'credit_card_amount > 5000', 'review', 30, TRUE),
+('OP002', '信用卡单笔支付超过20000', 'payment', 'high', 'credit_card_amount > 20000', 'review', 50, TRUE),
+('OP003', '短时间多笔支付', 'payment', 'high', 'payment_count_1h > 5', 'review', 45, TRUE),
+('OP004', '支付卡BIN命中黑名单', 'payment', 'critical', 'card_bin_blacklist', 'block', 90, TRUE),
+('OP005', '支付IP与注册IP不一致', 'payment', 'medium', 'payment_ip_diff_register', 'alert', 25, TRUE),
+
+-- 优惠券规则
+('OC001', '同一设备领取优惠券超过5张', 'coupon', 'high', 'device_coupon_count > 5', 'block', 60, TRUE),
+('OC002', '同一IP 24小时领取超过20张', 'coupon', 'high', 'ip_coupon_count_24h > 20', 'block', 55, TRUE),
+('OC003', '账号间关联领取', 'coupon', 'critical', 'account_relation_claim', 'block', 80, TRUE),
+
+-- 设备规则
+('OD001', '模拟器设备', 'device', 'high', 'is_emulator', 'review', 50, TRUE),
+('OD002', 'ROOT/越狱设备', 'device', 'medium', 'is_rooted', 'alert', 35, TRUE),
+('OD003', 'IP变更检测', 'device', 'medium', 'ip_changed', 'alert', 30, TRUE),
+('OD004', 'VPN/代理检测', 'device', 'low', 'is_vpn_proxy', 'alert', 20, TRUE);
+
+-- ================================================================
+-- 初始化风险阈值配置
+-- ================================================================
+
+COMMENT ON TABLE risk_rules IS '风控规则定义表';
+COMMENT ON TABLE risk_events IS '风控事件记录表';
+COMMENT ON TABLE risk_profiles IS '用户风控档案表';
+COMMENT ON TABLE risk_blacklist IS '黑名单表';
+COMMENT ON TABLE risk_whitelist IS '白名单表';
+COMMENT ON TABLE risk_alerts IS '风控预警记录表';
+COMMENT ON TABLE device_fingerprints IS '设备指纹表';
+COMMENT ON TABLE risk_operation_logs IS '敏感操作日志表';

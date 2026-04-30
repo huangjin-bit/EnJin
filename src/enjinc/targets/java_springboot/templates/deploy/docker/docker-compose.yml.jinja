@@ -1,0 +1,115 @@
+version: "3.8"
+
+{% set svc_name = application.name | replace("-", "_") %}
+services:
+  {{ svc_name }}:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: {{ application.name }}
+    ports:
+      - "${APP_PORT:8080}:8080"
+    environment:
+      - DB_HOST=${DB_HOST:postgres}
+      - DB_PORT=${DB_PORT:5432}
+      - DB_USERNAME=${DB_USERNAME:postgres}
+      - DB_PASSWORD=${DB_PASSWORD:postgres}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+      - NACOS_ADDR=${NACOS_ADDR:nacos:8848}
+    depends_on:
+{% if application.database.driver != 'none' %}
+      - postgres
+{% endif %}
+      - kafka
+    networks:
+      - microservice-net
+    restart: unless-stopped
+
+{% if application.database.driver != 'none' %}
+  postgres:
+    image: postgres:16-alpine
+    container_name: {{ application.name }}-postgres
+    environment:
+      POSTGRES_DB: {{ application.database.name | default(application.name) }}
+      POSTGRES_USER: ${DB_USERNAME:postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:postgres}
+    ports:
+      - "${DB_EXPOSE_PORT:5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - microservice-net
+
+  postgres-init:
+    image: postgres:16-alpine
+    depends_on:
+      - postgres
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USERNAME:postgres}
+      PGPASSWORD: ${DB_PASSWORD:postgres}
+    entrypoint: >
+      sh -c "until pg_isready; do sleep 1; done;
+             psql -d {{ application.database.name | default(application.name) }} -f /docker-entrypoint-initdb.d/init.sql || true"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - microservice-net
+{% endif %}
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: {{ application.name }}-kafka
+    ports:
+      - "${KAFKA_PORT:9092}:9092"
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    volumes:
+      - kafkadata:/bitnami/kafka
+    networks:
+      - microservice-net
+
+{% if use_nacos_config or service_discovery == "nacos" %}
+  nacos:
+    image: nacos/nacos-server:v2.3.2-slim
+    container_name: {{ application.name }}-nacos
+    ports:
+      - "${NACOS_PORT:8848}:8848"
+    environment:
+      - MODE=standalone
+      - JVM_XMS=256m
+      - JVM_XMX=512m
+    volumes:
+      - nacosdata:/home/nacos/data
+    networks:
+      - microservice-net
+{% endif %}
+
+{% if use_tracing %}
+  zipkin:
+    image: openzipkin/zipkin-slim:3
+    container_name: {{ application.name }}-zipkin
+    ports:
+      - "${ZIPKIN_PORT:9411}:9411"
+    networks:
+      - microservice-net
+{% endif %}
+
+networks:
+  microservice-net:
+    driver: bridge
+
+volumes:
+{% if application.database.driver != 'none' %}
+  pgdata:
+{% endif %}
+  kafkadata:
+{% if use_nacos_config or service_discovery == "nacos" %}
+  nacosdata:
+{% endif %}

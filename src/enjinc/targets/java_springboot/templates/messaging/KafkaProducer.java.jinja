@@ -1,0 +1,39 @@
+package {{ application.name | replace("-", "_") }}.messaging;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+import org.springframework.stereotype.Component;
+import java.util.concurrent.CompletableFuture;
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.HashMap;
+
+@Component
+public class {{ application.name | capitalize }}EventPublisher {
+
+    @Autowired
+    private KafkaTemplate<String, Object> kafkaTemplate;
+
+    private static final String TOPIC_PREFIX = "{{ application.name }}-events-";
+
+    public void publish(String eventType, Object payload) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", eventType);
+        event.put("payload", payload);
+        event.put("timestamp", LocalDateTime.now().toString());
+        event.put("source", "{{ application.name }}");
+
+        String topic = TOPIC_PREFIX + eventType.toLowerCase();
+        CompletableFuture<SendResult<String, Object>> future = kafkaTemplate.send(topic, event);
+
+        future.whenComplete((result, ex) -> {
+            if (ex == null) {
+                System.out.println("Event published: " + eventType + " -> " + result.getRecordMetadata().topic());
+            } else {
+                System.err.println("Failed to publish event: " + eventType);
+                ex.printStackTrace();
+            }
+        });
+    }
+}

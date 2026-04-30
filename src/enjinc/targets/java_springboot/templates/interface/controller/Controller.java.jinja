@@ -1,0 +1,47 @@
+package {{ pkg }}.interface.controller;
+
+import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+{% if use_dto %}
+import {{ pkg }}.interface.dto.request.*;
+import {{ pkg }}.interface.dto.response.*;
+import {{ pkg }}.interface.assembler.*;
+import jakarta.validation.Valid;
+{% else %}
+import {{ pkg }}.domain.entity.*;
+{% endif %}
+import {{ pkg }}.application.service.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.Map;
+import java.util.HashMap;
+
+/**
+ * {{ route.name }} Controller
+ * Prefix: {{ prefix }}
+ */
+@RestController
+@RequestMapping("{{ prefix }}")
+public class {{ route.name }}Controller {
+
+{% for dep in route.dependencies %}
+    @Autowired
+    private I{{ dep }}Service {{ dep | lower }}Service;
+{% endfor %}
+
+{% if ai_code %}
+    // AI-generated endpoints
+{{ ai_code | indent(4, first=True) }}
+{% else %}
+{% for endpoint in route.endpoints %}
+{% set ep_params = [] %}
+{% if "{id}" in endpoint.path %}{{ ep_params.append('@PathVariable("id") Long id') or "" }}{% endif %}
+    @RequestMapping(path = "{{ endpoint.path }}", method = RequestMethod.{{ endpoint.method }})
+    public ResponseEntity<?> {{ endpoint.handler | lower }}({{ ep_params | join(", ") }}) {
+        return ResponseEntity.ok(Map.of("message", "{{ endpoint.handler }} not implemented"));
+    }
+{% endfor %}
+{% endif %}
+}

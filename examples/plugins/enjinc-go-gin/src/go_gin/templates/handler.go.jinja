@@ -1,0 +1,20 @@
+package handler
+
+import (
+	"net/http"
+	"github.com/gin-gonic/gin"
+)
+
+{% if ai_code %}
+// AI-generated: {{ route.name }}
+{{ ai_code }}
+{% else %}
+// {{ route.name }} handler group
+func Register{{ route.name }}(r *gin.RouterGroup) {
+{% for ep in route.endpoints %}
+	r.{{ ep.method.lower() }}("{{ ep.path }}", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "{{ ep.handler }} not implemented"})
+	})
+{% endfor %}
+}
+{% endif %}

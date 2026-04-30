@@ -1,0 +1,48 @@
+package {{ application.name | replace("-", "_") }}.domain.entity;
+
+import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+
+/**
+ * {{ struct.name }} Entity
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@TableName("{{ struct.annotations[0].args[0] if struct.annotations and struct.annotations[0].name == 'table' else struct.name | lower }}")
+public class {{ struct.name }} {
+
+{% for field in struct.fields %}
+{% set ns = namespace(is_primary=false, is_auto_inc=false) %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' %}{% set ns.is_primary = true %}{% endif %}
+{% if anno.name == 'auto_increment' %}{% set ns.is_auto_inc = true %}{% endif %}
+{% endfor %}
+{% if ns.is_primary %}
+    @TableId(type = IdType.AUTO)
+{% else %}
+    @TableField("{{ field.name }}")
+{% endif %}
+{% if field.type.base == 'Int' %}
+    private Long {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Float' %}
+    private Double {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Bool' %}
+    private Boolean {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'DateTime' %}
+    private java.time.LocalDateTime {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'String' %}
+    private String {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'Enum' %}
+    private String {{ field.name | snake_to_camel }};
+{% elif field.type.base == 'List' %}
+    private java.util.List<{{ field.type.params[0].base if field.type.params else 'Object' }}> {{ field.name | snake_to_camel }};
+{% else %}
+    private {{ field.type.base }} {{ field.name | snake_to_camel }};
+{% endif %}
+{% endfor %}
+}

@@ -1,0 +1,55 @@
+package {{ pkg }}.interface.assembler;
+
+import {{ pkg }}.domain.entity.{{ struct.name }};
+{% if use_dto %}
+import {{ pkg }}.interface.dto.request.{{ struct.name }}CreateRequest;
+import {{ pkg }}.interface.dto.request.{{ struct.name }}UpdateRequest;
+import {{ pkg }}.interface.dto.response.{{ struct.name }}Response;
+{% endif %}
+{% if use_vo %}
+import {{ pkg }}.interface.vo.{{ struct.name }}VO;
+{% endif %}
+
+/**
+ * {{ struct.name }} Assembler - Entity <-> DTO/VO converter
+ */
+public class {{ struct.name }}Assembler {
+
+{% if use_dto %}
+    public static {{ struct.name }} toEntity({{ struct.name }}CreateRequest request) {
+        {{ struct.name }} entity = new {{ struct.name }}();
+{% for field in struct.fields %}
+{% set ns = namespace(is_primary=false) %}
+{% for anno in field.annotations %}
+{% if anno.name == 'primary' %}{% set ns.is_primary = true %}{% endif %}
+{% endfor %}
+{% if not ns.is_primary %}
+        entity.set{{ field.name | snake_to_camel | capitalize }}(request.get{{ field.name | snake_to_camel | capitalize }}());
+{% endif %}
+{% endfor %}
+        return entity;
+    }
+
+    public static {{ struct.name }}Response toResponse({{ struct.name }} entity) {
+        {{ struct.name }}Response response = new {{ struct.name }}Response();
+{% for field in struct.fields %}
+{% if field.name not in sensitive_fields %}
+        response.set{{ field.name | snake_to_camel | capitalize }}(entity.get{{ field.name | snake_to_camel | capitalize }}());
+{% endif %}
+{% endfor %}
+        return response;
+    }
+{% endif %}
+{% if use_vo %}
+
+    public static {{ struct.name }}VO toVO({{ struct.name }} entity) {
+        {{ struct.name }}VO vo = new {{ struct.name }}VO();
+{% for field in struct.fields %}
+{% if field.name not in sensitive_fields %}
+        vo.set{{ field.name | snake_to_camel | capitalize }}(entity.get{{ field.name | snake_to_camel | capitalize }}());
+{% endif %}
+{% endfor %}
+        return vo;
+    }
+{% endif %}
+}

@@ -1,0 +1,54 @@
+# ============================================================
+# scheduler.py.jinja - 爬虫调度器
+# ============================================================
+
+import asyncio
+from typing import Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
+
+CRAWLER_MODULES: Dict[str, Any] = {}
+
+
+{% for module in modules %}
+
+def init_{{ module.name.lower() }}():
+    """Initialize {{ module.name }}: {{ module.init.intent | default('') | replace('"', '') }}"""
+    logger.info("Initializing module: {{ module.name }}")
+    # TODO: implement {{ module.name }} initialization
+
+
+CRAWLER_MODULES["{{ module.name }}"] = {
+    "init": init_{{ module.name.lower() }},
+    "dependencies": [
+{% for dep in module.dependencies %}
+        "{{ dep }}",
+{% endfor %}
+    ],
+    "exports": {
+{% for export in module.exports %}
+        "{{ export.action }}": "{{ export.target }}",
+{% endfor %}
+    },
+    "schedules": [],
+}
+
+{% for schedule in module.schedules %}
+CRAWLER_MODULES["{{ module.name }}"]["schedules"].append({
+    "frequency": "{{ schedule.frequency }}",
+    "cron": "{{ schedule.cron }}",
+    "intent": "{{ schedule.intent | replace('"', '') | replace('\n', ' ') }}",
+})
+
+{% endfor %}
+{% endfor %}
+
+
+async def init_all_modules():
+    """Initialize all crawler modules."""
+    for name, mod in CRAWLER_MODULES.items():
+        init_fn = mod.get("init")
+        if init_fn and callable(init_fn):
+            init_fn()
+            logger.info(f"Module {name} initialized")

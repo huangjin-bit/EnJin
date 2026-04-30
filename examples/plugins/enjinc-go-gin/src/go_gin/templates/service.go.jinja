@@ -1,0 +1,14 @@
+package service
+
+import "fmt"
+
+{% if ai_code %}
+// AI-generated: {{ fn.name }}
+{{ ai_code }}
+{% else %}
+// {{ fn.name }} service method
+func {{ fn.name | snake_to_camel }}({% for p in fn.params %}{{ p.name }} {{ p.type.base | lower }}{% if not loop.last %}, {% endif %}{% endfor %}) error {
+	// TODO: implement {{ fn.name }}
+	return fmt.Errorf("{{ fn.name }} not yet implemented")
+}
+{% endif %}
