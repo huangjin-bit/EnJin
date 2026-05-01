@@ -1,0 +1,42 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+
+# ===== EnJin 编译产物 =====
+# AI 生成的目标代码输出目录
+output/
+output_*/
+# 注意: enjin.lock 应该被提交到仓库（确定性构建的关键）
+# 不要将其加入 .gitignore
+
+# ===== 测试 =====
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ===== 数据库文件 =====
+*.db
+
+# ===== 环境变量（安全敏感） =====
+.env
+.env.local

@@ -84,6 +84,22 @@ management:
       endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
 {% endif %}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
 logging:
   level:
     root: INFO

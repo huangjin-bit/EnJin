@@ -50,7 +50,17 @@ class JavaSpringBootRenderer:
         layout = get_java_layout(app_config)
         ctx = {"application": _app_ctx(app_name, app_config)}
 
-        write_file(output_dir / "pom.xml", render_template(t, "build/pom.xml.jinja", ctx))
+        pom_ctx = {
+            **ctx,
+            "use_spring_cloud": layout.use_spring_cloud,
+            "service_discovery": layout.service_discovery,
+            "use_nacos_config": layout.use_nacos_config,
+            "use_feign": layout.use_feign,
+            "use_sentinel": layout.use_sentinel,
+            "use_seata": layout.use_seata,
+            "use_tracing": layout.use_tracing,
+        }
+        write_file(output_dir / "pom.xml", render_template(t, "build/pom.xml.jinja", pom_ctx))
         yml_ctx = {
             **ctx,
             "use_seata": layout.use_seata,
@@ -75,6 +85,22 @@ class JavaSpringBootRenderer:
             exc_dir / "GlobalExceptionHandler.java",
             render_template(t, "infrastructure/exception/GlobalExceptionHandler.java.jinja", ctx),
         )
+
+        # ApiResponse 通用响应包装
+        common_dir = output_dir / "src/main/java" / pkg / "infrastructure/common"
+        write_file(
+            common_dir / "ApiResponse.java",
+            render_template(t, "infrastructure/common/ApiResponse.java.jinja", {"pkg": pkg}),
+        )
+
+        # Logback 日志配置
+        write_file(
+            output_dir / "src/main/resources/logback-spring.xml",
+            render_template(t, "config/logback-spring.xml.jinja", ctx),
+        )
+
+        # .gitignore
+        write_file(output_dir / ".gitignore", render_template(t, "config/gitignore.jinja", {}))
 
         # Spring Cloud 微服务配置
         if layout.use_spring_cloud:
@@ -344,6 +370,8 @@ class JavaSpringBootRenderer:
 
         # Gateway 模块
         if layout.use_gateway:
+            self._last_service_discovery = layout.service_discovery
+            self._last_use_tracing = layout.use_tracing
             self._render_gateway(routes, pkg, output_dir)
 
         migration_dir = output_dir / "src/main/resources" / "db" / "migration"
@@ -365,6 +393,18 @@ class JavaSpringBootRenderer:
         gateway_dir = output_dir / "gateway"
 
         ctx = {"pkg": pkg, "routes": routes}
+
+        # Gateway pom.xml
+        gateway_pom_ctx = {
+            "application": {"name": pkg, "version": "0.1.0"},
+            "service_discovery": getattr(self, "_last_service_discovery", ""),
+            "use_tracing": getattr(self, "_last_use_tracing", False),
+        }
+        write_file(
+            gateway_dir / "pom.xml",
+            render_template(t, "build/gateway-pom.xml.jinja", gateway_pom_ctx),
+        )
+
         write_file(
             gateway_dir / f"{pkg}_gateway" / "GatewayApplication.java",
             render_template(t, "infrastructure/cloud/GatewayApplication.java.jinja", {"pkg": f"{pkg}.gateway"}),
