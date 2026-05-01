@@ -49,6 +49,14 @@ class Annotation:
             "kwargs": self.kwargs,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> Annotation:
+        return cls(
+            name=data["name"],
+            args=data.get("args", []),
+            kwargs=data.get("kwargs", {}),
+        )
+
 
 @dataclass
 class TypeRef:
@@ -75,6 +83,16 @@ class TypeRef:
             "is_optional": self.is_optional,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> TypeRef:
+        params = []
+        for p in data.get("params", []):
+            if isinstance(p, dict):
+                params.append(cls.from_dict(p))
+            else:
+                params.append(p)
+        return cls(base=data["base"], params=params, is_optional=data.get("is_optional", False))
+
 
 @dataclass
 class Param:
@@ -95,6 +113,10 @@ class Param:
             "name": self.name,
             "type": self.type.to_dict(),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Param:
+        return cls(name=data["name"], type=TypeRef.from_dict(data["type"]))
 
 
 # ============================================================
@@ -125,6 +147,14 @@ class FieldDef:
             "annotations": [a.to_dict() for a in self.annotations],
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> FieldDef:
+        return cls(
+            name=data["name"],
+            type=TypeRef.from_dict(data["type"]),
+            annotations=[Annotation.from_dict(a) for a in data.get("annotations", [])],
+        )
+
 
 @dataclass
 class StructDef:
@@ -149,6 +179,14 @@ class StructDef:
             "annotations": [a.to_dict() for a in self.annotations],
             "fields": [f.to_dict() for f in self.fields],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> StructDef:
+        return cls(
+            name=data["name"],
+            annotations=[Annotation.from_dict(a) for a in data.get("annotations", [])],
+            fields=[FieldDef.from_dict(f) for f in data.get("fields", [])],
+        )
 
 
 # ============================================================
@@ -280,6 +318,20 @@ class FnDef:
             "is_locked": self.is_locked,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> FnDef:
+        return cls(
+            name=data["name"],
+            annotations=[Annotation.from_dict(a) for a in data.get("annotations", [])],
+            params=[Param.from_dict(p) for p in data.get("params", [])],
+            return_type=TypeRef.from_dict(data["return_type"]) if data.get("return_type") else None,
+            guard=[GuardRule(expr=g["expr"], message=g["message"]) for g in data.get("guard", [])],
+            process=ProcessIntent(**data["process"]) if data.get("process") else None,
+            expect=[ExpectAssertion(raw=e["raw"]) for e in data.get("expect", [])],
+            native_blocks=[NativeBlock(**n) for n in data.get("native_blocks", [])],
+            is_locked=data.get("is_locked", False),
+        )
+
 
 # ============================================================
 # Module 层 — module
@@ -364,6 +416,17 @@ class ModuleDef:
             "schedules": [s.to_dict() for s in self.schedules],
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> ModuleDef:
+        return cls(
+            name=data["name"],
+            annotations=[Annotation.from_dict(a) for a in data.get("annotations", [])],
+            dependencies=data.get("dependencies", []),
+            exports=[ModuleExport(**e) for e in data.get("exports", [])],
+            init=ProcessIntent(**data["init"]) if data.get("init") else None,
+            schedules=[ScheduleDef(**s) for s in data.get("schedules", [])],
+        )
+
 
 # ============================================================
 # Service 层 — route
@@ -426,6 +489,21 @@ class RouteDef:
             "dependencies": self.dependencies,
             "endpoints": [e.to_dict() for e in self.endpoints],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> RouteDef:
+        return cls(
+            name=data["name"],
+            annotations=[Annotation.from_dict(a) for a in data.get("annotations", [])],
+            dependencies=data.get("dependencies", []),
+            endpoints=[
+                EndpointDef(
+                    method=e["method"], path=e["path"], handler=e["handler"],
+                    annotations=[Annotation.from_dict(a) for a in e.get("annotations", [])],
+                    is_locked=e.get("is_locked", False),
+                ) for e in data.get("endpoints", [])
+            ],
+        )
 
 
 # ============================================================
@@ -490,3 +568,19 @@ class Program:
             "modules": [m.to_dict() for m in self.modules],
             "routes": [r.to_dict() for r in self.routes],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Program:
+        """从 to_dict() 输出重建 Program AST。"""
+        app = None
+        if data.get("application"):
+            cfg = {k: v for k, v in data["application"].items() if k != "node_type"}
+            app = ApplicationConfig(config=cfg)
+
+        return cls(
+            application=app,
+            structs=[StructDef.from_dict(s) for s in data.get("structs", [])],
+            functions=[FnDef.from_dict(f) for f in data.get("functions", [])],
+            modules=[ModuleDef.from_dict(m) for m in data.get("modules", [])],
+            routes=[RouteDef.from_dict(r) for r in data.get("routes", [])],
+        )

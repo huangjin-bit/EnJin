@@ -643,6 +643,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Target language (default: python_fastapi)",
     )
 
+    import_parser = subparsers.add_parser("import", help="Import existing project to .ej source")
+    import_parser.add_argument("source", help="Path to existing project root directory")
+    import_parser.add_argument(
+        "--lang",
+        choices=["python", "java"],
+        required=True,
+        help="Source language",
+    )
+    import_parser.add_argument(
+        "--framework",
+        default=None,
+        help="Framework hint (fastapi, springboot)",
+    )
+    import_parser.add_argument(
+        "--out",
+        default="imported.ej",
+        help="Output .ej file path (default: imported.ej)",
+    )
+
     args = parser.parse_args(argv)
 
     # 确保 entry_points 插件被加载（支持 pip install 后立即可用）
@@ -770,6 +789,27 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  - {filepath}")
 
             print(f"[enjinc] generated {len(migrations)} migration file(s)")
+            return 0
+
+        if args.command == "import":
+            from enjinc.importer import import_python_source, import_java_source, program_to_ej
+            source_path = Path(args.source)
+            if not source_path.is_dir():
+                print(f"[enjinc] source directory not found: {source_path}", file=sys.stderr)
+                return 1
+
+            if args.lang == "python":
+                program = import_python_source(source_path)
+            else:
+                program = import_java_source(source_path)
+
+            ej_text = program_to_ej(program)
+            out_path = Path(args.out)
+            out_path.write_text(ej_text, encoding="utf-8")
+
+            print(f"[enjinc] imported {len(program.structs)} structs, "
+                  f"{len(program.functions)} fns, {len(program.routes)} routes")
+            print(f"[enjinc] output: {out_path}")
             return 0
 
         print(f"[enjinc] unknown command: {args.command}", file=sys.stderr)
