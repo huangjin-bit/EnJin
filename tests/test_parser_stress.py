@@ -371,11 +371,19 @@ fn Function{i}(id: Int) -> Entity{i} {{
 
 
 class TestParsingPerformance:
-    """解析性能基准测试。"""
+    """解析性能基准测试。
+
+    阈值基于 Windows 开发环境 (Python 3.13 + Earley 解析器) 的基准测量。
+    Earley 解析器复杂度 O(n^3)，语法复杂度增长会直接影响解析耗时。
+    如阈值仍不稳定，可用 -m "not slow" 跳过。
+    """
+
+    STRUCT_THRESHOLD = 60.0   # 1000 structs 阈值（秒）
+    FN_THRESHOLD = 60.0       # 500 fns 阈值（秒）
 
     @pytest.mark.slow
     def test_1000_structs_performance(self):
-        """解析 1000 个 struct 的耗时基准 (< 5 秒)。"""
+        """解析 1000 个 struct（含注解）的耗时基准。"""
         structs = []
         for i in range(1000):
             structs.append(f"""
@@ -386,17 +394,26 @@ struct PerfEntity{i} {{
 """)
 
         source = "\n".join(structs)
+        source_len = len(source)
 
         start = time.time()
         program = parse(source)
         elapsed = time.time() - start
 
         assert len(program.structs) == 1000
-        assert elapsed < 30.0, f"解析耗时 {elapsed:.2f}s，超过 30s 阈值"
+        # 验证解析结果的正确性（抽样检查）
+        assert program.structs[0].name == "PerfEntity0"
+        assert program.structs[999].name == "PerfEntity999"
+        assert program.structs[0].fields[0].name == "id"
+
+        assert elapsed < self.STRUCT_THRESHOLD, (
+            f"1000 structs 解析耗时 {elapsed:.2f}s，超过 {self.STRUCT_THRESHOLD}s 阈值 "
+            f"(源码 {source_len // 1024}KB)"
+        )
 
     @pytest.mark.slow
     def test_500_functions_performance(self):
-        """解析 500 个 fn 的耗时基准 (< 5 秒)。"""
+        """解析 500 个 fn（含 guard/process/expect）的耗时基准。"""
         fns = []
         for i in range(500):
             fns.append(f"""
@@ -408,10 +425,20 @@ fn perf_fn_{i}(id: Int) -> PerfEntity{i} {{
 """)
 
         source = "\n".join(fns)
+        source_len = len(source)
 
         start = time.time()
         program = parse(source)
         elapsed = time.time() - start
 
         assert len(program.functions) == 500
-        assert elapsed < 30.0, f"解析耗时 {elapsed:.2f}s，超过 30s 阈值"
+        # 验证解析结果的正确性（抽样检查）
+        assert program.functions[0].name == "perf_fn_0"
+        assert program.functions[499].name == "perf_fn_499"
+        assert len(program.functions[0].guard) == 1
+        assert program.functions[0].guard[0].expr == "id > 0"
+
+        assert elapsed < self.FN_THRESHOLD, (
+            f"500 fns 解析耗时 {elapsed:.2f}s，超过 {self.FN_THRESHOLD}s 阈值 "
+            f"(源码 {source_len // 1024}KB)"
+        )

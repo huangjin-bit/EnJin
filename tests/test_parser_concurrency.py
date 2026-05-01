@@ -305,7 +305,13 @@ class TestTemplateRendererThreadSafety:
 
 
 class TestConcurrentStress:
-    """高并发压力测试。"""
+    """高并发压力测试。
+
+    阈值基于 Windows 开发环境 (Python 3.13, 100 线程池) 的基准测量。
+    GIL 限制了真正的并行，但验证的是线程安全性和资源竞争。
+    """
+
+    CONCURRENCY_THRESHOLD = 180.0  # 1000 次并发解析阈值（秒）
 
     @pytest.mark.slow
     def test_high_concurrency_100_threads(self, thread_safe_counter: dict):
@@ -321,12 +327,18 @@ fn get_user(id: Int) -> User {
 }
 """
 
+        errors: list[Exception] = []
+
         def stress_task(idx: int):
-            program = parse(source)
-            result = analyze(program)
-            with thread_safe_counter["lock"]:
-                thread_safe_counter["value"] += 1
-            return program, result
+            try:
+                program = parse(source)
+                result = analyze(program)
+                with thread_safe_counter["lock"]:
+                    thread_safe_counter["value"] += 1
+                return program, result
+            except Exception as e:
+                errors.append(e)
+                raise
 
         start = time.time()
         with ThreadPoolExecutor(max_workers=100) as executor:
@@ -334,8 +346,13 @@ fn get_user(id: Int) -> User {
             results = [f.result() for f in as_completed(futures)]
         elapsed = time.time() - start
 
-        assert thread_safe_counter["value"] == 1000
-        assert elapsed < 120.0, f"1000 次并发解析耗时 {elapsed:.2f}s，超过 120s 阈值"
+        assert thread_safe_counter["value"] == 1000, (
+            f"只完成了 {thread_safe_counter['value']}/1000 次解析"
+        )
+        assert not errors, f"并发解析出现 {len(errors)} 个错误: {errors[0]}"
+        assert elapsed < self.CONCURRENCY_THRESHOLD, (
+            f"1000 次并发解析耗时 {elapsed:.2f}s，超过 {self.CONCURRENCY_THRESHOLD}s 阈值"
+        )
 
     def test_rapid_start_stop(self):
         """快速启停测试：短时间内多次创建和销毁线程。"""

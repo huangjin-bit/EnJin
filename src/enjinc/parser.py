@@ -145,29 +145,31 @@ class EnJinTransformer(Transformer):
         fields = []
         hooks = []
         for item in items:
-            if isinstance(item, list) and all(isinstance(f, FieldDef) for f in item):
-                fields = item
-            elif isinstance(item, list) and all(isinstance(h, HookDef) for h in item):
-                hooks = item
-            elif isinstance(item, list):
-                # Could be mixed FieldDef + HookDef from struct_body
-                fields.extend([x for x in item if isinstance(x, FieldDef)])
-                hooks.extend([x for x in item if isinstance(x, HookDef)])
-                annotations.extend([x for x in item if isinstance(x, Annotation)])
+            if isinstance(item, list):
+                # struct_member_list: mixed FieldDef + HookDef + Annotation
+                for x in item:
+                    if isinstance(x, FieldDef):
+                        fields.append(x)
+                    elif isinstance(x, HookDef):
+                        hooks.append(x)
+                    elif isinstance(x, Annotation):
+                        annotations.append(x)
+                # Also handle pure annotation_list
+                if all(isinstance(a, Annotation) for a in item) and not fields and not hooks:
+                    if not any(isinstance(a, Annotation) for a in annotations[:len(item)]):
+                        annotations = item
             elif isinstance(item, str) and name is None:
                 name = item
             elif isinstance(item, str) and name is not None:
                 extends = item
-            elif isinstance(item, dict):
-                # struct_body dict with fields and hooks
-                fields.extend(item.get("fields", []))
-                hooks.extend(item.get("hooks", []))
         return StructDef(name=name or "", annotations=annotations, fields=fields, extends=extends, hooks=hooks)
 
-    def struct_body(self, items: list) -> dict:
-        fields = [x for x in items if isinstance(x, FieldDef)]
-        hooks = [x for x in items if isinstance(x, HookDef)]
-        return {"fields": fields, "hooks": hooks}
+    def struct_member_list(self, items: list) -> list:
+        return list(items)
+
+    def struct_member(self, items: list):
+        # Transparent in grammar but we need the actual item
+        return items[0]
 
     def hook_def(self, items: list) -> HookDef:
         name = items[0]

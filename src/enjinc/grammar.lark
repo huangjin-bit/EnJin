@@ -23,10 +23,10 @@ import_decl: "import" ESCAPED_STRING
 // ----------------------------------------------------------
 // [Model 层] struct 定义
 // ----------------------------------------------------------
-struct_def: annotation_list _NL* "struct" NAME ("extends" NAME)? _NL* "{" _NL* struct_body _NL* "}"
+struct_def: annotation_list _NL* "struct" NAME ("extends" NAME)? _NL* "{" _NL* struct_member_list _NL* "}"
 
-struct_body: (struct_member _NL*)*
-?struct_member: field_def
+struct_member_list: (struct_member _NL*)*
+!struct_member: field_def
               | hook_def
 
 field_def: NAME ":" type_ref annotation_list
