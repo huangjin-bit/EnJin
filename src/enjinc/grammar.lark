@@ -16,14 +16,25 @@ start: _NL* (top_level_decl _NL*)*
               | module_def
               | route_def
               | application_def
+              | import_decl
+
+import_decl: "import" ESCAPED_STRING
 
 // ----------------------------------------------------------
 // [Model 层] struct 定义
 // ----------------------------------------------------------
-struct_def: annotation_list _NL* "struct" NAME _NL* "{" _NL* field_list _NL* "}"
+struct_def: annotation_list _NL* "struct" NAME ("extends" NAME)? _NL* "{" _NL* struct_body _NL* "}"
 
-field_list: (field_def _NL*)*
+struct_body: (struct_member _NL*)*
+?struct_member: field_def
+              | hook_def
+
 field_def: NAME ":" type_ref annotation_list
+
+hook_def: "hook" HOOK_NAME "{" _NL* PROCESS_STRING _NL* "}"
+
+HOOK_NAME: "beforeSave" | "afterSave" | "beforeUpdate" | "afterUpdate"
+         | "beforeDelete" | "afterDelete" | "onCreate" | "onValidate" | "onDelete"
 
 // ----------------------------------------------------------
 // [Method 层] fn 定义（三段意图体）
@@ -100,6 +111,7 @@ config_entry: NAME ":" config_value
 ?config_value: ESCAPED_STRING
             | NUMBER
             | env_call
+            | NAME
 
 env_call: "env" "(" ESCAPED_STRING ")"
 

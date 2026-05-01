@@ -31,6 +31,40 @@ from enjinc.parser import parse_file
 from enjinc.template_renderer import RenderConfig, render_program
 
 
+def _resolve_imports(program: Program, base_dir: Path, _seen: set | None = None) -> Program:
+    """递归解析 import 声明，将引用的 .ej 文件合并到当前 Program。"""
+    if _seen is None:
+        _seen = set()
+
+    if not program.imports:
+        return program
+
+    for imp in program.imports:
+        # 解析相对于当前文件的路径
+        import_path = (base_dir / imp.path).resolve()
+        if not import_path.exists():
+            print(f"[enjinc] warning: import '{imp.path}' not found, skipping", file=sys.stderr)
+            continue
+
+        key = str(import_path)
+        if key in _seen:
+            continue
+        _seen.add(key)
+
+        imported = parse_file(import_path)
+        imported = _resolve_imports(imported, import_path.parent, _seen)
+
+        # 合并（不覆盖 application）
+        if imported.application and not program.application:
+            program.application = imported.application
+        program.structs.extend(imported.structs)
+        program.functions.extend(imported.functions)
+        program.modules.extend(imported.modules)
+        program.routes.extend(imported.routes)
+
+    return program
+
+
 def _merge_programs(programs: list[Program]) -> Program:
     """将多个 Program 合并为一个编译单元 Program。"""
     merged = Program()
@@ -55,13 +89,14 @@ def _merge_programs(programs: list[Program]) -> Program:
 def _load_program(source: str | Path) -> Program:
     """加载 source 对应的 Program。
 
-    - 文件: 直接 parse_file
+    - 文件: 直接 parse_file，并递归解析 import 声明
     - 目录: 扫描目录下所有 *.ej（非递归）并合并
     """
     source_path = Path(source)
 
     if source_path.is_file():
-        return parse_file(source_path)
+        program = parse_file(source_path)
+        return _resolve_imports(program, source_path.parent)
 
     if source_path.is_dir():
         ej_files = sorted(source_path.glob("*.ej"))
@@ -69,7 +104,8 @@ def _load_program(source: str | Path) -> Program:
             raise FileNotFoundError(f"No .ej files found under directory: {source_path}")
 
         programs = [parse_file(filepath) for filepath in ej_files]
-        return _merge_programs(programs)
+        merged = _merge_programs(programs)
+        return _resolve_imports(merged, source_path)
 
     raise FileNotFoundError(f"Source path not found: {source_path}")
 
@@ -277,6 +313,64 @@ def _build_incremental(
     BuildManifest.compute_for(new_program, target_lang, output_path / target_lang).save(output_path)
 
     return output_path / target_lang
+
+
+def _handle_refactor(args) -> int:
+    """处理 refactor 子命令。"""
+    import json
+    from enjinc.refactor import (
+        rename_struct_field,
+        rename_struct,
+        extract_module,
+        merge_structs,
+        split_struct,
+    )
+    from enjinc.importer import program_to_ej
+
+    op = args.refactor_op
+    if not op:
+        print("[enjinc] specify a refactoring operation (rename-field, rename-struct, "
+              "extract-module, merge-structs, split-struct)", file=sys.stderr)
+        return 1
+
+    program = _load_program(args.source)
+
+    if op == "rename-field":
+        result = rename_struct_field(program, args.struct, args.old_name, args.new_name)
+    elif op == "rename-struct":
+        result = rename_struct(program, args.old_name, args.new_name)
+    elif op == "extract-module":
+        result = extract_module(program, args.source_module, args.fn_names, args.new_module)
+    elif op == "merge-structs":
+        result = merge_structs(program, args.struct_names, args.merged_name)
+    elif op == "split-struct":
+        try:
+            config = json.loads(args.config)
+        except json.JSONDecodeError as e:
+            print(f"[enjinc] invalid JSON for --config: {e}", file=sys.stderr)
+            return 1
+        result = split_struct(program, args.struct, config)
+    else:
+        print(f"[enjinc] unknown refactor operation: {op}", file=sys.stderr)
+        return 1
+
+    print(f"[enjinc] {result.change_description}")
+    if result.affected_nodes:
+        print(f"[enjinc] affected nodes ({len(result.affected_nodes)}):")
+        for node in result.affected_nodes:
+            print(f"  - {node}")
+    if result.migration_needed:
+        print("[enjinc] migration_needed=true (database schema changed)")
+
+    if args.dry_run:
+        print("[enjinc] dry-run mode, no files written")
+        return 0
+
+    ej_text = program_to_ej(result.new_program)
+    out_path = Path(args.out) if args.out else Path(args.source)
+    out_path.write_text(ej_text, encoding="utf-8")
+    print(f"[enjinc] output: {out_path}")
+    return 0
 
 
 def _scaffold_target(args) -> int:
@@ -719,6 +813,16 @@ def main(argv: list[str] | None = None) -> int:
         default="python_fastapi",
         help="Target language (default: python_fastapi)",
     )
+    migrate_parser.add_argument(
+        "--from-target",
+        default=None,
+        help="Source tech stack for cross-stack migration (e.g. java_springboot)",
+    )
+    migrate_parser.add_argument(
+        "--to-target",
+        default=None,
+        help="Target tech stack for cross-stack migration (e.g. python_fastapi)",
+    )
 
     import_parser = subparsers.add_parser("import", help="Import existing project to .ej source")
     import_parser.add_argument("source", help="Path to existing project root directory")
@@ -737,6 +841,49 @@ def main(argv: list[str] | None = None) -> int:
         "--out",
         default="imported.ej",
         help="Output .ej file path (default: imported.ej)",
+    )
+
+    # ── refactor 子命令 ──
+    refactor_parser = subparsers.add_parser("refactor", help="Safe refactoring at .ej level")
+    refactor_parser.add_argument("source", help="Path to .ej source file")
+    refactor_sub = refactor_parser.add_subparsers(dest="refactor_op", help="Refactoring operation")
+
+    # rename-field
+    rf_parser = refactor_sub.add_parser("rename-field", help="Rename a struct field and propagate")
+    rf_parser.add_argument("--struct", required=True, help="Struct name")
+    rf_parser.add_argument("--old-name", required=True, help="Current field name")
+    rf_parser.add_argument("--new-name", required=True, help="New field name")
+    rf_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+
+    # rename-struct
+    rs_parser = refactor_sub.add_parser("rename-struct", help="Rename a struct and propagate")
+    rs_parser.add_argument("--old-name", required=True, help="Current struct name")
+    rs_parser.add_argument("--new-name", required=True, help="New struct name")
+    rs_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+
+    # extract-module
+    em_parser = refactor_sub.add_parser("extract-module", help="Extract fns into a new module")
+    em_parser.add_argument("--source-module", required=True, help="Source module name")
+    em_parser.add_argument("--fn-names", required=True, nargs="+", help="Function names to extract")
+    em_parser.add_argument("--new-module", required=True, help="New module name")
+    em_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+
+    # merge-structs
+    ms_parser = refactor_sub.add_parser("merge-structs", help="Merge multiple structs into one")
+    ms_parser.add_argument("--struct-names", required=True, nargs="+", help="Struct names to merge")
+    ms_parser.add_argument("--merged-name", required=True, help="Merged struct name")
+    ms_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+
+    # split-struct
+    ss_parser = refactor_sub.add_parser("split-struct", help="Split a struct into multiple")
+    ss_parser.add_argument("--struct", required=True, help="Source struct name")
+    ss_parser.add_argument("--config", required=True, help='JSON config: {"NewName": ["field1", "field2"]}')
+    ss_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+
+    refactor_parser.add_argument(
+        "--out",
+        default=None,
+        help="Output .ej file path (default: overwrite source)",
     )
 
     args = parser.parse_args(argv)
@@ -857,6 +1004,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "migrate":
+            # 跨栈迁移模式
+            if getattr(args, 'from_target', None) and getattr(args, 'to_target', None):
+                from enjinc.stack_migrator import execute_migration
+                program = _load_program(args.old_source)
+                output = execute_migration(
+                    program, args.from_target, args.to_target, Path(args.out),
+                )
+                print(f"[enjinc] cross-stack migration: {args.from_target} → {args.to_target}")
+                print(f"[enjinc] output: {output}")
+                return 0
+
+            # 原有蓝绿迁移模式
             from enjinc.migration import render_migration
             old_program = _load_program(args.old_source)
             new_program = _load_program(args.new_source)
@@ -897,6 +1056,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"{len(program.functions)} fns, {len(program.routes)} routes")
             print(f"[enjinc] output: {out_path}")
             return 0
+
+        if args.command == "refactor":
+            return _handle_refactor(args)
 
         print(f"[enjinc] unknown command: {args.command}", file=sys.stderr)
         return 1

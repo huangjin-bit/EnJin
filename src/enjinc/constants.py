@@ -62,6 +62,20 @@ ANNO_PREFIX = "prefix"
 ANNO_AUTH = "auth"
 ANNO_RATE_LIMIT = "rate_limit"
 
+# Struct / Fn cross-cutting annotations
+ANNO_CACHE = "cache"
+ANNO_SOFT_DELETE = "soft_delete"
+ANNO_AUDIT_LOG = "audit_log"
+ANNO_VERSIONED = "versioned"
+
+# Business hook names (used in struct hook_def)
+HOOK_NAMES = frozenset({
+    "beforeSave", "afterSave",
+    "beforeUpdate", "afterUpdate",
+    "beforeDelete", "afterDelete",
+    "onCreate", "onValidate", "onDelete",
+})
+
 
 # ============================================================
 # 3. 原始类型集合 (EnJin 基础类型，非用户自定义)

@@ -725,7 +725,8 @@ def program_to_ej(program: Program) -> str:
             lines.append("")
             for anno in struct.annotations:
                 lines.append(_format_annotation(anno))
-            lines.append(f"struct {struct.name} {{")
+            extends_clause = f" extends {struct.extends}" if struct.extends else ""
+            lines.append(f"struct {struct.name}{extends_clause} {{")
             for f in struct.fields:
                 anno_str = " ".join(f"@{a.name}" + (f"({_format_args(a.args)})" if a.args else "") for a in f.annotations)
                 type_str = _format_type(f.type)
@@ -733,6 +734,10 @@ def program_to_ej(program: Program) -> str:
                 if anno_str:
                     line += f" {anno_str}"
                 lines.append(line)
+            for h in struct.hooks:
+                lines.append(f'    hook {h.name} {{')
+                lines.append(f'        "{h.intent}"')
+                lines.append(f'    }}')
             lines.append("}")
 
     # fn 定义

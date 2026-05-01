@@ -44,6 +44,9 @@ class JavaLayoutConfig:
     use_docker: bool = False  # 生成 Dockerfile + docker-compose
     use_k8s: bool = False  # 生成 K8s Deployment/Service YAML
 
+    # 代码分离
+    separate_generated: bool = False  # True = 生成到 generated/ 子目录，手写代码放 custom/
+
     # 敏感字段名称列表 (这些字段不会出现在 Response DTO 和 VO 中)
     sensitive_fields: list[str] = field(
         default_factory=lambda: ["password", "passwordHash", "secret", "token"]
@@ -59,6 +62,9 @@ class PythonLayoutConfig:
     use_alembic: bool = False  # 生成 Alembic 迁移骨架
     api_version: str = "v1"  # API 路由版本前缀
     app_package_name: str = "app"  # 主包名
+
+    # 代码分离
+    separate_generated: bool = False  # True = 生成到 generated/ 子目录，手写代码放 custom/
 
     sensitive_fields: list[str] = field(
         default_factory=lambda: ["password", "password_hash", "secret", "token"]
@@ -110,6 +116,8 @@ def get_java_layout(app_config: dict | None = None) -> JavaLayoutConfig:
             cfg.use_k8s = _to_bool(value)
         elif key == "java_sensitive_fields" and isinstance(value, list):
             cfg.sensitive_fields = value
+        elif key == "separate_generated":
+            cfg.separate_generated = _to_bool(value)
     return cfg
 
 
@@ -132,4 +140,6 @@ def get_python_layout(app_config: dict | None = None) -> PythonLayoutConfig:
             cfg.app_package_name = str(value)
         elif key == "python_sensitive_fields" and isinstance(value, list):
             cfg.sensitive_fields = value
+        elif key == "separate_generated":
+            cfg.separate_generated = _to_bool(value)
     return cfg

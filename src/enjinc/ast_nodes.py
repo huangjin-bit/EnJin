@@ -157,28 +157,54 @@ class FieldDef:
 
 
 @dataclass
+class HookDef:
+    """struct 内的业务钩子。
+
+    对应语法: hook beforeSave { "intent..." }
+    """
+    name: str       # beforeSave, afterSave, beforeUpdate, afterUpdate, beforeDelete, afterDelete, onCreate, onValidate
+    intent: str
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "intent": self.intent}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> HookDef:
+        return cls(name=data["name"], intent=data["intent"])
+
+
+@dataclass
 class StructDef:
     """Model 层节点: struct 定义。
 
-    对应语法: @table("name") struct Name { fields... }
+    对应语法: @table("name") struct Name extends Parent { fields... hooks... }
 
     Attributes:
         name: struct 名称 (PascalCase)
         annotations: struct 级注解列表
         fields: 字段定义列表
+        extends: 父 struct 名称（可选，用于继承）
+        hooks: 业务钩子列表（beforeSave, afterUpdate 等）
     """
 
     name: str
     annotations: list[Annotation] = field(default_factory=list)
     fields: list[FieldDef] = field(default_factory=list)
+    extends: Optional[str] = None
+    hooks: list[HookDef] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "node_type": "struct",
             "name": self.name,
             "annotations": [a.to_dict() for a in self.annotations],
             "fields": [f.to_dict() for f in self.fields],
         }
+        if self.extends:
+            d["extends"] = self.extends
+        if self.hooks:
+            d["hooks"] = [h.to_dict() for h in self.hooks]
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> StructDef:
@@ -186,6 +212,8 @@ class StructDef:
             name=data["name"],
             annotations=[Annotation.from_dict(a) for a in data.get("annotations", [])],
             fields=[FieldDef.from_dict(f) for f in data.get("fields", [])],
+            extends=data.get("extends"),
+            hooks=[HookDef.from_dict(h) for h in data.get("hooks", [])],
         )
 
 
@@ -524,6 +552,18 @@ class ApplicationConfig:
 
     config: dict = field(default_factory=dict)
 
+
+@dataclass
+class ImportDecl:
+    """文件级 import 声明。
+
+    对应语法: import "path/to/other.ej"
+    """
+    path: str
+
+    def to_dict(self) -> dict:
+        return {"node_type": "import", "path": self.path}
+
     def to_dict(self) -> dict:
         return {
             "node_type": "application",
@@ -553,6 +593,7 @@ class Program:
     functions: list[FnDef] = field(default_factory=list)
     modules: list[ModuleDef] = field(default_factory=list)
     routes: list[RouteDef] = field(default_factory=list)
+    imports: list[ImportDecl] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """将整个 I-AST 导出为标准 JSON 字典。

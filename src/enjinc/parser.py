@@ -35,6 +35,8 @@ from enjinc.ast_nodes import (
     FieldDef,
     FnDef,
     GuardRule,
+    HookDef,
+    ImportDecl,
     ModuleDef,
     ModuleExport,
     NativeBlock,
@@ -139,15 +141,38 @@ class EnJinTransformer(Transformer):
     def struct_def(self, items: list) -> StructDef:
         annotations = []
         name = None
+        extends = None
         fields = []
+        hooks = []
         for item in items:
             if isinstance(item, list) and all(isinstance(f, FieldDef) for f in item):
                 fields = item
+            elif isinstance(item, list) and all(isinstance(h, HookDef) for h in item):
+                hooks = item
             elif isinstance(item, list):
-                annotations = item
+                # Could be mixed FieldDef + HookDef from struct_body
+                fields.extend([x for x in item if isinstance(x, FieldDef)])
+                hooks.extend([x for x in item if isinstance(x, HookDef)])
+                annotations.extend([x for x in item if isinstance(x, Annotation)])
             elif isinstance(item, str) and name is None:
                 name = item
-        return StructDef(name=name or "", annotations=annotations, fields=fields)
+            elif isinstance(item, str) and name is not None:
+                extends = item
+            elif isinstance(item, dict):
+                # struct_body dict with fields and hooks
+                fields.extend(item.get("fields", []))
+                hooks.extend(item.get("hooks", []))
+        return StructDef(name=name or "", annotations=annotations, fields=fields, extends=extends, hooks=hooks)
+
+    def struct_body(self, items: list) -> dict:
+        fields = [x for x in items if isinstance(x, FieldDef)]
+        hooks = [x for x in items if isinstance(x, HookDef)]
+        return {"fields": fields, "hooks": hooks}
+
+    def hook_def(self, items: list) -> HookDef:
+        name = items[0]
+        intent = items[1].strip('"')
+        return HookDef(name=name, intent=intent)
 
     def field_list(self, items: list) -> list[FieldDef]:
         return list(items)
@@ -424,6 +449,10 @@ class EnJinTransformer(Transformer):
     # 顶层规则
     # ----------------------------------------------------------
 
+    def import_decl(self, items: list) -> ImportDecl:
+        path = items[0].strip('"')
+        return ImportDecl(path=path)
+
     def start(self, items: list) -> Program:
         program = Program()
         for item in items:
@@ -439,6 +468,8 @@ class EnJinTransformer(Transformer):
                 program.routes.append(item)
             elif isinstance(item, ApplicationConfig):
                 program.application = item
+            elif isinstance(item, ImportDecl):
+                program.imports.append(item)
         return program
 
 
