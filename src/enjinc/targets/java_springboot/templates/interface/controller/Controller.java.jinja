@@ -1,13 +1,13 @@
-package {{ pkg }}.interface.controller;
+package {{ pkg }}.interfaces.controller;
 
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 {% if use_dto %}
-import {{ pkg }}.interface.dto.request.*;
-import {{ pkg }}.interface.dto.response.*;
-import {{ pkg }}.interface.assembler.*;
+import {{ pkg }}.interfaces.dto.request.*;
+import {{ pkg }}.interfaces.dto.response.*;
+import {{ pkg }}.interfaces.assembler.*;
 import jakarta.validation.Valid;
 {% else %}
 import {{ pkg }}.domain.entity.*;
@@ -26,7 +26,7 @@ import java.util.HashMap;
 @RequestMapping("{{ prefix }}")
 public class {{ route.name }}Controller {
 
-{% for dep in route.dependencies %}
+{% for dep in service_deps %}
     @Autowired
     private I{{ dep }}Service {{ dep | lower }}Service;
 {% endfor %}

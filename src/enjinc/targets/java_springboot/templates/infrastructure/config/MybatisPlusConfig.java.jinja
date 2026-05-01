@@ -12,7 +12,13 @@ public class MybatisPlusConfig {
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+{% if application.database.driver == 'mysql' %}
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+{% elif application.database.driver == 'h2' %}
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.H2));
+{% else %}
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.POSTGRESQL));
+{% endif %}
         return interceptor;
     }
 }

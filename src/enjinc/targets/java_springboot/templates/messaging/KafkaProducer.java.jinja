@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 @Component
-public class {{ application.name | capitalize }}EventPublisher {
+public class EventPublisher {
 
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;

@@ -1,13 +1,13 @@
-package {{ pkg }}.interface.assembler;
+package {{ pkg }}.interfaces.assembler;
 
 import {{ pkg }}.domain.entity.{{ struct.name }};
 {% if use_dto %}
-import {{ pkg }}.interface.dto.request.{{ struct.name }}CreateRequest;
-import {{ pkg }}.interface.dto.request.{{ struct.name }}UpdateRequest;
-import {{ pkg }}.interface.dto.response.{{ struct.name }}Response;
+import {{ pkg }}.interfaces.dto.request.{{ struct.name }}CreateRequest;
+import {{ pkg }}.interfaces.dto.request.{{ struct.name }}UpdateRequest;
+import {{ pkg }}.interfaces.dto.response.{{ struct.name }}Response;
 {% endif %}
 {% if use_vo %}
-import {{ pkg }}.interface.vo.{{ struct.name }}VO;
+import {{ pkg }}.interfaces.vo.{{ struct.name }}VO;
 {% endif %}
 
 /**
@@ -24,7 +24,7 @@ public class {{ struct.name }}Assembler {
 {% if anno.name == 'primary' %}{% set ns.is_primary = true %}{% endif %}
 {% endfor %}
 {% if not ns.is_primary %}
-        entity.set{{ field.name | snake_to_camel | capitalize }}(request.get{{ field.name | snake_to_camel | capitalize }}());
+        entity.set{{ field.name | snake_to_pascal }}(request.get{{ field.name | snake_to_pascal }}());
 {% endif %}
 {% endfor %}
         return entity;
@@ -34,7 +34,7 @@ public class {{ struct.name }}Assembler {
         {{ struct.name }}Response response = new {{ struct.name }}Response();
 {% for field in struct.fields %}
 {% if field.name not in sensitive_fields %}
-        response.set{{ field.name | snake_to_camel | capitalize }}(entity.get{{ field.name | snake_to_camel | capitalize }}());
+        response.set{{ field.name | snake_to_pascal }}(entity.get{{ field.name | snake_to_pascal }}());
 {% endif %}
 {% endfor %}
         return response;
@@ -46,7 +46,7 @@ public class {{ struct.name }}Assembler {
         {{ struct.name }}VO vo = new {{ struct.name }}VO();
 {% for field in struct.fields %}
 {% if field.name not in sensitive_fields %}
-        vo.set{{ field.name | snake_to_camel | capitalize }}(entity.get{{ field.name | snake_to_camel | capitalize }}());
+        vo.set{{ field.name | snake_to_pascal }}(entity.get{{ field.name | snake_to_pascal }}());
 {% endif %}
 {% endfor %}
         return vo;

@@ -6,10 +6,10 @@ spring:
     name: {{ application.name }}
 
   datasource:
-    driver-class-name: {% if application.database.driver == 'postgresql' %}org.postgresql.Driver{% else %}com.mysql.cj.jdbc.Driver{% endif %}
-    url: jdbc:{% if application.database.driver == 'postgresql' %}postgresql{% else %}mysql{% endif %}://${DB_HOST:localhost}:${DB_PORT:5432}/{{ application.database.name }}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    driver-class-name: {% if application.database.driver == 'postgresql' %}org.postgresql.Driver{% elif application.database.driver == 'h2' %}org.h2.Driver{% else %}com.mysql.cj.jdbc.Driver{% endif %}
+    url: jdbc:{% if application.database.driver == 'postgresql' %}postgresql{% elif application.database.driver == 'h2' %}h2:mem:{{ application.database.name }}{% else %}mysql{% endif %}://{% if application.database.driver != 'h2' %}${DB_HOST:localhost}:${DB_PORT:5432}/{{ application.database.name }}{% endif %}
+    username: ${DB_USERNAME:{% if application.database.driver == 'h2' %}sa{% else %}postgres{% endif %}}
+    password: ${DB_PASSWORD:{% if application.database.driver == 'h2' %}{% else %}postgres{% endif %}}
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
@@ -23,7 +23,7 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: {% if application.database.driver == 'postgresql' %}org.hibernate.dialect.PostgreSQLDialect{% else %}org.hibernate.dialect.MySQLDialect{% endif %}
+        dialect: {% if application.database.driver == 'postgresql' %}org.hibernate.dialect.PostgreSQLDialect{% elif application.database.driver == 'h2' %}org.hibernate.dialect.H2Dialect{% else %}org.hibernate.dialect.MySQLDialect{% endif %}
         format_sql: true
 
   flyway:

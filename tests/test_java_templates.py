@@ -236,7 +236,7 @@ class TestJavaDTORendering:
         req_dir = (
             output_dir
             / "java_springboot"
-            / "src/main/java/trade_core/interface/dto/request"
+            / "src/main/java/trade_core/interfaces/dto/request"
         )
         assert (req_dir / "UserCreateRequest.java").exists()
         assert (req_dir / "ProductCreateRequest.java").exists()
@@ -257,7 +257,7 @@ class TestJavaDTORendering:
         req_dir = (
             output_dir
             / "java_springboot"
-            / "src/main/java/trade_core/interface/dto/request"
+            / "src/main/java/trade_core/interfaces/dto/request"
         )
         assert (req_dir / "UserUpdateRequest.java").exists()
 
@@ -273,7 +273,7 @@ class TestJavaDTORendering:
         resp_dir = (
             output_dir
             / "java_springboot"
-            / "src/main/java/trade_core/interface/dto/response"
+            / "src/main/java/trade_core/interfaces/dto/response"
         )
         assert (resp_dir / "UserResponse.java").exists()
 
@@ -300,7 +300,7 @@ class TestJavaVORendering:
         vo_dir = (
             output_dir
             / "java_springboot"
-            / "src/main/java/trade_core/interface/vo"
+            / "src/main/java/trade_core/interfaces/vo"
         )
         assert (vo_dir / "UserVO.java").exists()
         assert (vo_dir / "ProductVO.java").exists()
@@ -321,7 +321,7 @@ class TestJavaAssemblerRendering:
         asm_dir = (
             output_dir
             / "java_springboot"
-            / "src/main/java/trade_core/interface/assembler"
+            / "src/main/java/trade_core/interfaces/assembler"
         )
         assert (asm_dir / "UserAssembler.java").exists()
 
@@ -347,7 +347,7 @@ class TestJavaControllerRendering:
         controller_dir = (
             output_dir
             / "java_springboot"
-            / "src/main/java/trade_core/interface/controller"
+            / "src/main/java/trade_core/interfaces/controller"
         )
         assert controller_dir.exists()
 
@@ -416,17 +416,17 @@ class TestJavaIntegration:
             "src/main/java/trade_core/application/service/impl/UserServiceImpl.java",
             "src/main/java/trade_core/application/service/impl/ProductServiceImpl.java",
             # DTO
-            "src/main/java/trade_core/interface/dto/request/UserCreateRequest.java",
-            "src/main/java/trade_core/interface/dto/request/UserUpdateRequest.java",
-            "src/main/java/trade_core/interface/dto/response/UserResponse.java",
+            "src/main/java/trade_core/interfaces/dto/request/UserCreateRequest.java",
+            "src/main/java/trade_core/interfaces/dto/request/UserUpdateRequest.java",
+            "src/main/java/trade_core/interfaces/dto/response/UserResponse.java",
             # VO
-            "src/main/java/trade_core/interface/vo/UserVO.java",
+            "src/main/java/trade_core/interfaces/vo/UserVO.java",
             # Assembler
-            "src/main/java/trade_core/interface/assembler/UserAssembler.java",
+            "src/main/java/trade_core/interfaces/assembler/UserAssembler.java",
             # Controller (now in interface/controller)
-            "src/main/java/trade_core/interface/controller/OrderServiceController.java",
-            "src/main/java/trade_core/interface/controller/ProductServiceController.java",
-            "src/main/java/trade_core/interface/controller/HealthServiceController.java",
+            "src/main/java/trade_core/interfaces/controller/OrderServiceController.java",
+            "src/main/java/trade_core/interfaces/controller/ProductServiceController.java",
+            "src/main/java/trade_core/interfaces/controller/HealthServiceController.java",
             # Messaging
             "src/main/java/trade_core/messaging/EventPublisher.java",
         ]

@@ -196,8 +196,8 @@ class JavaSpringBootRenderer:
         self, structs: list[StructDef], pkg: str, output_dir: Path, layout: JavaLayoutConfig,
     ) -> None:
         t = self.target_lang
-        req_dir = output_dir / "src/main/java" / pkg / "interface/dto/request"
-        resp_dir = output_dir / "src/main/java" / pkg / "interface/dto/response"
+        req_dir = output_dir / "src/main/java" / pkg / "interfaces/dto/request"
+        resp_dir = output_dir / "src/main/java" / pkg / "interfaces/dto/response"
 
         for struct in structs:
             base_ctx = {"struct": struct, "pkg": pkg}
@@ -221,7 +221,7 @@ class JavaSpringBootRenderer:
         self, structs: list[StructDef], pkg: str, output_dir: Path, layout: JavaLayoutConfig,
     ) -> None:
         t = self.target_lang
-        vo_dir = output_dir / "src/main/java" / pkg / "interface/vo"
+        vo_dir = output_dir / "src/main/java" / pkg / "interfaces/vo"
 
         for struct in structs:
             ctx = {"struct": struct, "pkg": pkg, "sensitive_fields": layout.sensitive_fields}
@@ -234,7 +234,7 @@ class JavaSpringBootRenderer:
         self, structs: list[StructDef], pkg: str, output_dir: Path, layout: JavaLayoutConfig,
     ) -> None:
         t = self.target_lang
-        asm_dir = output_dir / "src/main/java" / pkg / "interface/assembler"
+        asm_dir = output_dir / "src/main/java" / pkg / "interfaces/assembler"
 
         for struct in structs:
             ctx = {
@@ -343,19 +343,29 @@ class JavaSpringBootRenderer:
         pkg = _pkg_path(app_name)
         layout = get_java_layout(app_config)
 
-        controller_dir = output_dir / "src/main/java" / pkg / "interface/controller"
+        controller_dir = output_dir / "src/main/java" / pkg / "interfaces/controller"
+        struct_names = {s.name for s in structs} if structs else set()
+
         for route in routes:
             route_ai_code = _get_ai_code(ai_results, "route", route.name)
             prefix = "/"
             for anno in route.annotations:
                 if anno.name == "prefix" and anno.args:
                     prefix = anno.args[0]
+
+            # 解析 route 依赖，提取 struct 名用于 Service 注入
+            service_deps = []
+            for dep in route.dependencies:
+                if dep in struct_names:
+                    service_deps.append(dep)
+
             ctx = {
                 "route": route,
                 "pkg": pkg,
                 "prefix": prefix,
                 "ai_code": route_ai_code,
                 "use_dto": layout.use_dto,
+                "service_deps": service_deps,
             }
             write_file(
                 controller_dir / f"{route.name}Controller.java",

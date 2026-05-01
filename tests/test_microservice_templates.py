@@ -293,7 +293,7 @@ class TestMicroserviceExample:
         # Standard files
         assert (root / "src/main/java" / pkg / "Application.java").exists()
         assert (root / "src/main/java" / pkg / "domain/entity/Order.java").exists()
-        assert (root / "src/main/java" / pkg / "interface/controller/OrderServiceController.java").exists()
+        assert (root / "src/main/java" / pkg / "interfaces/controller/OrderServiceController.java").exists()
 
         # Cloud files
         assert (root / "src/main/java" / pkg / "infrastructure/config/CloudConfig.java").exists()
