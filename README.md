@@ -139,6 +139,50 @@ fn create_order(user_id: Int, product_id: Int) -> Order {
 }
 ```
 
+### struct 继承与业务钩子
+
+```ej
+// 基础实体
+struct BaseEntity {
+    id: Int @primary @auto_increment
+    created_at: DateTime
+}
+
+// 继承并添加钩子
+struct Product extends BaseEntity {
+    name: String
+    price: Float
+
+    hook beforeSave {
+        "验证 price > 0，自动计算税费"
+    }
+
+    hook afterUpdate {
+        "价格变更时，通知关注该商品的用户"
+    }
+}
+```
+
+支持 9 种钩子：`beforeSave`、`afterSave`、`beforeUpdate`、`afterUpdate`、`beforeDelete`、`afterDelete`、`onCreate`、`onValidate`、`onDelete`。
+
+### 多文件组织
+
+大型项目可按领域拆分为多个 `.ej` 文件：
+
+```ej
+// 在 orders.ej 中引用其他文件的定义
+import "models/user.ej"
+import "models/product.ej"
+
+struct Order {
+    user_id: Int @foreign_key("User.id")
+    product_id: Int @foreign_key("Product.id")
+    total: Float
+}
+```
+
+CLI 也支持目录模式：`enjinc build src/` 自动合并目录下所有 `.ej` 文件。
+
 ### 关键注解
 
 | 注解 | 作用 |
@@ -152,7 +196,11 @@ fn create_order(user_id: Int, product_id: Int) -> Order {
 | `@default("value")` | 字段默认值 |
 | `@unique` | 唯一约束 |
 | `@max_length(n)` | 最大长度约束 |
-| `@sensitive` | 敏感字段（不出现在 Response/VO 中） |
+| `@soft_delete` | 软删除（添加 deleted_at 字段） |
+| `@audit_log` | 审计日志（记录创建/修改人） |
+| `@versioned` | 乐观锁（添加 version 字段） |
+| `@cache(ttl)` / `@cached(ttl)` | 结果缓存 |
+| `@rate_limit(rpm)` | 每分钟请求限流 |
 
 ### native 逃生舱
 
@@ -181,6 +229,94 @@ I-AST（意图抽象语法树）
   ↓ Template Renderer（Jinja2 框架 + AI 插槽）
   ↓ Test Generator（expect → 单元测试）
 可运行的目标项目
+```
+
+## 已有项目支持
+
+EnJin 不仅适用于新项目，也为已有大型项目提供完整的工程化支持。
+
+### 逆向导入
+
+从已有 Java/Python 项目反向生成 `.ej` 源码：
+
+```bash
+# 从 Python FastAPI 项目导入
+enjinc import ./my-fastapi-project --lang python --framework fastapi --out imported.ej
+
+# 从 Java Spring Boot 项目导入
+enjinc import ./my-springboot-project --lang java --framework springboot --out imported.ej
+```
+
+自动提取 SQLAlchemy 模型 / JPA Entity → `struct`，Service → `fn`，Controller → `route`。
+
+### 增量构建
+
+只重新渲染变更的节点及其依赖，不重建整个项目：
+
+```bash
+enjinc build app.ej --incremental --previous app_old.ej
+```
+
+变更传播规则：struct 变更 → 所有使用该 struct 的 fn → 相关 module → 相关 route。
+
+### 技术栈迁移
+
+用一套 `.ej` 文件重新编译到不同目标栈，自动生成适配层：
+
+```bash
+enjinc migrate app.ej --from-target java_springboot --to-target python_fastapi
+```
+
+生成的迁移产物包含：
+- 新目标栈的完整项目代码
+- 适配层（旧服务代理客户端，用于渐进式切换）
+- 迁移报告（类型映射、文件映射、需手动迁移的概念）
+
+### 安全重构
+
+在 `.ej` 层面执行重构，自动传播到所有依赖并生成数据库迁移脚本：
+
+```bash
+# 预览（不写文件）
+enjinc refactor app.ej rename-field --struct User --old-name name --new-name username --dry-run
+
+# 执行
+enjinc refactor app.ej rename-field --struct User --old-name name --new-name username
+
+# 其他操作
+enjinc refactor app.ej rename-struct --old-name User --new-name Account
+enjinc refactor app.ej extract-module --source-module user_mod --fn-names list_users --new-module query_mod
+enjinc refactor app.ej merge-structs --struct-names User Profile --merged-name UserProfile
+enjinc refactor app.ej split-struct --struct User --config '{"Profile": ["bio", "avatar"]}'
+```
+
+### 生成/自定义代码分离
+
+在 `application` 配置中启用代码分离：
+
+```ej
+application {
+    name: "my-app"
+    layout {
+        separate_generated: true
+    }
+}
+```
+
+编译后输出目录结构：
+
+```
+output/python_fastapi/
+  generated/          ← enjinc 生成，勿编辑
+    app/
+      models/
+      services/
+      ...
+  custom/             ← 手写代码，EnJin 不会触碰
+    app/
+      services/
+      api/
+    README.md
 ```
 
 ## 支持的目标栈
@@ -221,7 +357,7 @@ I-AST（意图抽象语法树）
 # 安装开发依赖
 pip install -e ".[dev]"
 
-# 运行全量测试（447+ 用例）
+# 运行全量测试（500+ 用例）
 pytest
 
 # 跳过慢测试
@@ -240,7 +376,7 @@ pytest --cov=enjinc
 - **Lark**（Earley 解析器）— .ej → Parse Tree
 - **Jinja2** — 模板骨架代码生成
 - **httpx**（可选）— LLM API 调用
-- **pytest** — 测试框架
+- **pytest** — 测试框架（500+ 用例）
 
 ## 项目结构
 
@@ -252,9 +388,13 @@ src/enjinc/
   prompt_router.py        # AI Prompt 路由
   code_generator.py       # AI 代码生成
   llm_client.py           # LLM 客户端
-  template_renderer.py    # 模板组装
+  template_renderer.py    # 模板组装（全量 + 增量渲染）
   test_generator.py       # expect → 单元测试
   dependency_graph.py     # 依赖图提取
+  incremental.py          # 增量构建（变更检测 + 传播）
+  refactor.py             # 安全重构（字段/struct 重命名、合并/拆分）
+  stack_migrator.py       # 技术栈迁移（跨栈映射 + 适配层）
+  importer.py             # 逆向导入（Python/Java → .ej）
   constants.py            # 常量注册中心
   layout_config.py        # 输出布局配置
   grammar.lark            # .ej 语法规则
@@ -263,8 +403,8 @@ src/enjinc/
     python_fastapi/       # Python FastAPI
     python_crawler/       # Python 爬虫
 examples/                 # .ej 示例文件
-docs/                     # 文档（7 个子域）
-tests/                    # 测试用例
+docs/                     # 文档（8 个子域）
+tests/                    # 测试用例（500+）
 ```
 
 ## 与现有方案的对比
@@ -342,13 +482,14 @@ EnJin 把一个"用 AI 生成整个电商系统"的问题，拆解为：
 | 切换目标 | 重写 | 重写 | **改一个 `--target` 参数** |
 | 扩展新目标 | 不支持 | 手动 | **插件式，pip install 即可** |
 
-#### 5. 成本控制
+#### 5. 已有项目支持
 
-| | 纯 AI 方案 | **EnJin** |
-|---|---|---|
-| Token 消耗 | 整个文件丢给 AI | **依赖图注入，仅发送相关上下文** |
-| 模型选择 | 固定模型 | **分层调用：模板层免费，复杂层用 GPT-4** |
-| 单次生成成本 | 高 | **降低约 60%** |
+| | 传统脚手架 | 纯 AI 方案 | **EnJin** |
+|---|---|---|---|
+| 逆向导入 | 不支持 | 不支持 | **`enjinc import` 从已有代码生成 .ej** |
+| 增量构建 | 不支持 | 每次全量 | **只重渲变更节点及依赖** |
+| 技术栈迁移 | 手动重写 | 手动重写 | **一键迁移 + 适配层** |
+| 安全重构 | IDE 重构（仅单语言） | 无 | **.ej 层面传播到所有依赖** |
 
 ### EnJin 不适合的场景
 
@@ -357,7 +498,6 @@ EnJin 把一个"用 AI 生成整个电商系统"的问题，拆解为：
 - **前端 UI 开发**：EnJin 生成后端代码，不涉及 UI 组件
 - **算法/数据科学**：四层架构是为 CRUD 业务设计的，不适合数值计算
 - **一次性脚本**：对于写个 quick script，直接用 Copilot 更快
-- **已有大型项目**：EnJin 适合从零生成新项目，不适合渐进式引入
 - **非 Web 应用**：目前目标栈集中在 Web 后端（Spring Boot / FastAPI / 爬虫）
 
 ## License

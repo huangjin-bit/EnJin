@@ -11,10 +11,24 @@
 一个 `.ej` 文件可包含以下顶层声明（顺序不限）：
 
 ```
-program := (struct_def | fn_def | module_def | route_def | application_def)*
+program := (struct_def | fn_def | module_def | route_def | application_def | import_decl)*
 ```
 
 注释使用 `//` 单行注释。
+
+### 文件导入
+
+一个 `.ej` 文件可以引用其他 `.ej` 文件中的定义：
+
+```ej
+import "models/user.ej"
+import "services/auth.ej"
+```
+
+- 路径相对于当前文件所在目录
+- 导入是传递性的：A 导入 B，B 导入 C，则 A 可以使用 C 中的定义
+- 循环导入自动检测并跳过（不会重复加载）
+- `application` 块只在首次遇到时生效，后续文件中的 `application` 块被忽略
 
 ## 2. 类型系统
 
@@ -39,15 +53,76 @@ program := (struct_def | fn_def | module_def | route_def | application_def)*
 
 ```ej
 @table("table_name")
-struct StructName {
+struct StructName extends ParentStruct {
     field_name: Type @annotation1 @annotation2(arg)
     ...
+
+    hook beforeSave {
+        "保存前的业务钩子意图"
+    }
 }
 ```
 
 - `struct` 定义纯数据结构，映射到数据库表
 - 字段声明格式：`名称: 类型 @注解*`
-- 不允许包含任何行为逻辑
+- `extends`（可选）：继承父 struct 的所有字段，子 struct 可追加自己的字段
+- `hook`（可选）：声明业务生命周期钩子，在特定操作前后自动执行
+
+### 3.1 struct 继承
+
+```ej
+struct BaseEntity {
+    id: Int @primary @auto_increment
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+struct User extends BaseEntity {
+    username: String @unique
+    email: String @unique
+}
+```
+
+- 子 struct 自动继承父 struct 的所有字段和注解
+- 支持多层继承（A extends B extends C）
+- 子 struct 与父 struct 映射到不同的数据库表
+
+### 3.2 业务钩子 (hook)
+
+```ej
+struct Order {
+    total: Float
+    status: Enum("pending", "paid", "shipped")
+
+    hook beforeSave {
+        "验证 total > 0，自动计算税费"
+    }
+
+    hook afterUpdate {
+        "如果状态变为 paid，触发发货流程"
+    }
+
+    hook beforeDelete {
+        "检查订单是否可以取消"
+    }
+}
+```
+
+支持的钩子名称：
+
+| 钩子 | 触发时机 |
+|---|---|
+| `beforeSave` | 新建或更新记录保存前 |
+| `afterSave` | 新建或更新记录保存后 |
+| `beforeUpdate` | 更新记录前 |
+| `afterUpdate` | 更新记录后 |
+| `beforeDelete` | 删除记录前 |
+| `afterDelete` | 删除记录后 |
+| `onCreate` | 仅新建记录时 |
+| `onValidate` | 数据验证阶段 |
+| `onDelete` | 删除记录时（与 `beforeDelete` 等价） |
+
+钩子体与 `process` 块相同，使用自然语言描述意图，由 AI 生成具体实现代码。
 
 ## 4. Method 层 — fn (三段意图体)
 
@@ -202,6 +277,7 @@ application {
 - `application` 块是全局唯一的技术栈配置入口
 - 严禁在此处编写业务逻辑
 - `env("VAR")` 函数引用环境变量
+- 配置值支持：字符串 (`"value"`)、数字 (`123`)、布尔 (`true`/`false`)、环境变量 (`env("VAR")`)
 - 每个 `Compilation Unit` 只能有一个 `application` 块；一个 `application` 只能绑定一个 `target`
 - 多编译单元组织方式详见 `docs/02_architecture/compilation_unit_model.md`
 补充约束：
@@ -250,4 +326,4 @@ module OrderService {
 
 ---
 
-> 本文件最后更新: 2026-03-25 | 版本: v0.3.0
+> 本文件最后更新: 2026-05-01 | 版本: v0.4.0

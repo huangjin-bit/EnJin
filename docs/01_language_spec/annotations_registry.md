@@ -38,6 +38,9 @@
 | `@nullable` | 无 | 允许 NULL 值 | `bio: String @nullable` |
 | `@index` | 无 | 创建数据库索引 | `username: String @index` |
 | `@foreign_key` | `(ref: String)` | 外键引用，格式 `"Table.field"` | `@foreign_key("User.id")` |
+| `@soft_delete` | 无 | 启用软删除（添加 deleted_at 字段，删除时置时间戳而非物理删除） | `@soft_delete` |
+| `@audit_log` | 无 | 启用审计日志（自动记录创建人、修改人、时间戳） | `@audit_log` |
+| `@versioned` | 无 | 启用乐观锁版本号（添加 version 字段，更新时自动递增） | `@versioned` |
 
 ---
 
@@ -50,6 +53,7 @@
 | `@transactional` | 无 | 将函数包裹在数据库事务中 (Python: `async with session.begin()`) | `@transactional fn transfer(...)` |
 | `@retry` | `(max: Int)` | 失败自动重试。生成 tenacity/resilience4j 重试装饰器 | `@retry(3)` |
 | `@cached` | `(ttl: Int)` | 结果缓存，ttl 单位秒 | `@cached(300)` |
+| `@cache` | `(ttl: Int)` | 同 `@cached`，别名 | `@cache(300)` |
 | `@deprecated` | `(msg: String)` | 标记为废弃，生成 deprecation warning | `@deprecated("use v2")` |
 | `@data_plane` | `(protocol: String, engine: String)` | **[部分落地]** 将 `fn` 标记为数据面接口。当前 `analyzer.py` 已做语义约束：`@data_plane` 函数禁止 `native` 实现块（避免数据面计算内核直接落入契约层） | `@data_plane(protocol="grpc", engine="flink")` |
 | `@api_contract` | 无 | **[部分落地]** 将 `fn` 标记为跨域可见的接口契约。当前 `analyzer.py` 已做语义约束：`@api_contract` 函数禁止 `native` 实现块（仅保留契约语义） | `@api_contract fn charge(...)` |
@@ -85,4 +89,4 @@
 
 ---
 
-> 本文件最后更新: 2026-03-24 | 版本: v0.2.0
+> 本文件最后更新: 2026-05-01 | 版本: v0.3.0

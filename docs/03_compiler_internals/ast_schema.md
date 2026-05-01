@@ -18,7 +18,8 @@
   "structs": [ /* StructDef[] */ ],
   "functions": [ /* FnDef[] */ ],
   "modules": [ /* ModuleDef[] */ ],
-  "routes": [ /* RouteDef[] */ ]
+  "routes": [ /* RouteDef[] */ ],
+  "imports": [ /* ImportDecl[] */ ]
 }
 ```
 
@@ -104,6 +105,11 @@
         { "name": "default", "args": ["active"], "kwargs": {} }
       ]
     }
+  ],
+  "extends": "BaseEntity",
+  "hooks": [
+    { "name": "beforeSave", "intent": "验证 email 格式和用户名唯一性" },
+    { "name": "afterUpdate", "intent": "如果状态变更，发送通知邮件" }
   ]
 }
 ```
@@ -114,6 +120,15 @@
 | `name` | `string` | struct 名称（PascalCase） |
 | `annotations` | `Annotation[]` | struct 级注解列表 |
 | `fields` | `FieldDef[]` | 字段定义列表 |
+| `extends` | `string \| null` | 父 struct 名称（可选） |
+| `hooks` | `HookDef[]` | 业务生命周期钩子列表（可选） |
+
+### HookDef
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | `string` | 钩子名称：`beforeSave`、`afterSave`、`beforeUpdate`、`afterUpdate`、`beforeDelete`、`afterDelete`、`onCreate`、`onValidate`、`onDelete` |
+| `intent` | `string` | 自然语言意图描述（与 `process` 块相同格式） |
 
 ### FieldDef
 
@@ -362,6 +377,21 @@
 - `FnDef.data_plane`：承载 `@data_plane` 的协议与运行时元信息
 - `ExpectAssertion` 结构化拆解：在测试生成阶段将 `raw` 解析为结构化断言
 
+### ImportDecl (文件导入)
+
+```json
+{
+  "node_type": "import",
+  "path": "models/user.ej"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `path` | `string` | 相对于当前文件的 `.ej` 文件路径 |
+
+`ImportDecl` 不直接出现在 `to_dict()` 输出中，但在解析阶段被处理：CLI 会递归加载所有导入文件，合并到同一个 `Program` 中。
+
 ---
 
 ## 9. 完整 I-AST 示例
@@ -390,5 +420,5 @@
 
 ---
 
-> 本文件最后更新: 2026-03-24 | 版本: v0.3.0
+> 本文件最后更新: 2026-05-01 | 版本: v0.4.0
 > 关联文件: `src/enjinc/ast_nodes.py`, `src/enjinc/parser.py`
