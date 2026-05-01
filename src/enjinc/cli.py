@@ -212,6 +212,73 @@ def analyze_source(source: str | Path):
     return analyze(program)
 
 
+def _build_incremental(
+    source: str | Path,
+    output_dir: str | Path = "output",
+    target_override: str | None = None,
+    previous: str | None = None,
+    skip_analysis: bool = False,
+) -> Path:
+    """增量构建：只重新渲染变更的节点。"""
+    from enjinc.incremental import (
+        BuildManifest,
+        ChangeSet,
+        compute_program_diff,
+        compute_render_plan,
+    )
+    from enjinc.template_renderer import render_program_incremental
+
+    new_program = _load_program(source)
+    target_lang = _resolve_target(new_program, target_override)
+
+    if not skip_analysis:
+        assert_valid(new_program)
+
+    output_path = Path(output_dir)
+
+    # 获取旧 Program
+    if previous:
+        old_program = _load_program(previous)
+    else:
+        # 尝试从 manifest 恢复
+        manifest = BuildManifest.load(output_path)
+        if manifest and manifest.target_lang == target_lang:
+            # 没有 .ej 源文件无法恢复 Program，退回全量构建
+            print("[enjinc] --previous not specified, falling back to full build")
+            config = RenderConfig(target_lang=target_lang, output_dir=output_path)
+            render_program(new_program, config)
+            BuildManifest.compute_for(new_program, target_lang, output_path / target_lang).save(output_path)
+            return output_path / target_lang
+        else:
+            print("[enjinc] no previous version found, performing full build")
+            config = RenderConfig(target_lang=target_lang, output_dir=output_path)
+            render_program(new_program, config)
+            BuildManifest.compute_for(new_program, target_lang, output_path / target_lang).save(output_path)
+            return output_path / target_lang
+
+    # 计算变更
+    change_set = compute_program_diff(old_program, new_program)
+    render_plan = compute_render_plan(change_set)
+
+    if not render_plan:
+        print("[enjinc] no changes detected, nothing to rebuild")
+        return output_path / target_lang
+
+    print(f"[enjinc] incremental build: {len(change_set.direct_changes)} direct change(s), "
+          f"{len(render_plan)} node(s) to re-render")
+
+    for c in change_set.direct_changes:
+        print(f"  - {c.change_kind} {c.node_type} '{c.node_name}'")
+
+    config = RenderConfig(target_lang=target_lang, output_dir=output_path)
+    render_program_incremental(new_program, config, render_plan)
+
+    # 更新 manifest
+    BuildManifest.compute_for(new_program, target_lang, output_path / target_lang).save(output_path)
+
+    return output_path / target_lang
+
+
 def _scaffold_target(args) -> int:
     """生成目标栈扩展的脚手架代码。"""
     name = args.name
@@ -566,6 +633,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Disable Master AI review even when master model is configured",
     )
+    build_parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Incremental build: only re-render changed nodes",
+    )
+    build_parser.add_argument(
+        "--previous",
+        default=None,
+        help="Path to previous .ej version for incremental diff",
+    )
 
     analyze_parser = subparsers.add_parser("analyze", help="Run static analysis only")
     analyze_parser.add_argument("source", help="Path to .ej file or compilation-unit directory")
@@ -670,20 +747,29 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "build":
-            artifact_dir = build(
-                source=args.source,
-                output_dir=args.out,
-                target_override=args.target,
-                skip_analysis=args.skip_analysis,
-                use_ai=args.use_ai,
-                provider=args.provider,
-                model=args.model,
-                master_provider=args.master_provider,
-                master_model=args.master_model,
-                fn_provider=args.fn_provider,
-                fn_model=args.fn_model,
-                no_review=args.no_review,
-            )
+            if getattr(args, 'incremental', False):
+                artifact_dir = _build_incremental(
+                    source=args.source,
+                    output_dir=args.out,
+                    target_override=args.target,
+                    previous=args.previous,
+                    skip_analysis=args.skip_analysis,
+                )
+            else:
+                artifact_dir = build(
+                    source=args.source,
+                    output_dir=args.out,
+                    target_override=args.target,
+                    skip_analysis=args.skip_analysis,
+                    use_ai=args.use_ai,
+                    provider=args.provider,
+                    model=args.model,
+                    master_provider=args.master_provider,
+                    master_model=args.master_model,
+                    fn_provider=args.fn_provider,
+                    fn_model=args.fn_model,
+                    no_review=args.no_review,
+                )
             print(f"[enjinc] build succeeded: {artifact_dir}")
             return 0
 

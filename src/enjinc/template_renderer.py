@@ -99,6 +99,65 @@ def render_program(program: Program, config: RenderConfig) -> None:
     )
 
 
+def render_program_incremental(
+    program: Program,
+    config: RenderConfig,
+    render_plan: list[str],
+) -> None:
+    """增量渲染：只重新渲染 render_plan 中指定的节点。
+
+    Args:
+        program: 完整 Program
+        config: 渲染配置
+        render_plan: 需要重新渲染的节点 key 列表（如 ["struct:User", "fn:create_order"]）
+    """
+    renderer = get_renderer(config.target_lang)
+    if not renderer:
+        raise ValueError(f"Unknown target: {config.target_lang}")
+
+    app_config = program.application.config if program.application else {}
+    if program.application:
+        config.app_name = app_config.get("name", config.app_name)
+
+    output_dir = config.output_dir / config.target_lang
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    plan_set = set(render_plan)
+
+    # 基础设施层：如果有任何 struct 变更，重新渲染
+    struct_changed = any(k.startswith("struct:") for k in plan_set)
+    if struct_changed:
+        renderer.render_infrastructure(config.app_name, app_config, output_dir)
+
+    # 过滤出需要重新渲染的节点
+    struct_names = {k.split(":")[1] for k in plan_set if k.startswith("struct:")}
+    fn_names = {k.split(":")[1] for k in plan_set if k.startswith("fn:")}
+    route_names = {k.split(":")[1] for k in plan_set if k.startswith("route:")}
+
+    if struct_names:
+        changed_structs = [s for s in program.structs if s.name in struct_names]
+        _call_with_config(renderer.render_models, changed_structs, config.app_name, output_dir, app_config=app_config)
+
+    if fn_names:
+        changed_fns = [f for f in program.functions if f.name in fn_names]
+        related_structs = [s for s in program.structs
+                           if any(f.return_type and f.return_type.base == s.name or
+                                  any(p.type.base == s.name for p in f.params)
+                                  for f in changed_fns)]
+        _call_with_config(
+            renderer.render_methods, changed_fns, related_structs, config.app_name,
+            config.ai_results, output_dir, app_config=app_config,
+        )
+
+    if route_names:
+        changed_routes = [r for r in program.routes if r.name in route_names]
+        _call_with_config(
+            renderer.render_routes,
+            changed_routes, config.app_name, config.ai_results, output_dir,
+            functions=program.functions, structs=program.structs, app_config=app_config,
+        )
+
+
 def render_risk_control(
     structs, functions, routes, config: RenderConfig, output_dir: Path,
 ) -> None:
